@@ -1,0 +1,108 @@
+Build the first cut of the ALPS UI as a new Dioxus 0.7 fullstack crate called `alps-ui` and add it to the existing `klampatech/alps` Cargo workspace. This is the smoke for the alps-gui project — the goal is to land a real, runnable UI surface, not a stub.
+
+## Where to land the code
+
+**Build everything inside `~/Development/alps-gui`.** This is the deliverable path. The orchestrator's `--deliverable-path` flag will be set to this directory — codex writes source files here, the Judge walks this tree for source review. Do NOT write code under `/tmp/`, `/home/`, or any other path. Do NOT create files in the workdir (`~/Development/alps-runs/alps-gui-smoke-A`) — that directory is for ALPS's per-task orchestration state only.
+
+**Write everything inside `~/Development/alps-gui`** (do NOT create files under `/tmp/`, `/home/`, or any path outside the deliverable path).
+
+## Source of truth — read these first
+
+The vault spec at `~/Obsidian/projects/alps-ui-spec.md` (~53 KB, 738 lines) is the authoritative design. Read it. It contains:
+
+- The full module layout (src/main.rs, src/routes.rs, src/api/, src/pages/, src/components/, src/hooks/)
+- The type-safe `Routable` enum with all routes
+- The Cargo.toml features block (`web`, `desktop`, `mobile`, `server`, `fullstack`)
+- The server-function surface (tasks_list, task_get, task_run, task_cancel, settings)
+- The SSE log-stream shape (`task`, `level`, `line` JSON events)
+
+The design constraints at `~/Development/alps-gui/DESIGN.md` (in-repo — read it from there, not the path on this line) are the visual language, components, and layout rules. The smoke prompt does not duplicate the design constraints — it points at DESIGN.md.
+
+**You must read both `SPEC.md` and `DESIGN.md` before planning.** Do not invent your own design — DESIGN.md has the explicit constraints.
+
+## Scope — what to build in this smoke
+
+The full SPEC §12 has 7 topics. **This smoke covers Topics A and E only** — scaffold the crate + build the dashboard page. The other topics (server functions, SSE, mobile builds, settings page) are explicitly deferred and should NOT be implemented in this smoke. The smoke prompt tells you about the deferred items so you don't waste budget on them.
+
+### Topic A — Workspace + scaffold
+
+1. Add the `alps-ui` crate as a new workspace member. The current workspace is at `klampatech/alps` (Cargo.toml with `members = ["alps-core", "alps-cli"]`). **CRITICAL**: the deliverable is `~/Development/alps-gui`, NOT `klampatech/alps` — so the workspace structure in this case is unusual. Create a *separate* Cargo workspace at `~/Development/alps-gui/Cargo.toml` that depends on `alps-core` via a git or path dependency, but you don't have git credentials available — use a path dependency: `alps-core = { path = "../alps/alps-core" }`. The `alps-ui` crate lives entirely inside `~/Development/alps-gui/`.
+
+2. Use `dx new alps-ui --template jumpstart --no-fullstack --router --tailwind --platform web` to scaffold. Then strip the jumpstart example views to bare minimum (the SPEC §4.1 has the Cargo.toml features block — match it exactly).
+
+3. The crate's `Cargo.toml` features MUST be exactly:
+
+```toml
+[features]
+default = ["web"]
+web = ["dioxus/web"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]
+server = ["dioxus/server"]
+fullstack = ["dioxus/fullstack"]
+```
+
+4. Add `alps-core` as a path dependency. Import the types you need from `alps_core::domain`, `alps_core::receipt`, `alps_core::persistence`, `alps_core::summary`. Do NOT re-implement the type definitions — share them.
+
+### Topic E first cut — Dashboard page only
+
+Build the Dashboard page (`/`). This is the only page in this smoke. Other pages (`/tasks/:id`, `/tasks/new`, `/tasks/:id/log`, `/settings`) are stubs that render a placeholder + a "coming in v2" message — but the routes enum (`Route`) must enumerate all of them so the router is complete.
+
+Components required (per DESIGN.md):
+
+- `StatusPill` — must render all 9 `TaskState` variants (`Running`, `Idle`, `Planned`, `Implemented`, `Reviewed`, `Done`, `Rejected`, `Failed`, `Unknown`).
+- `StoryCard` — renders one UserStory with title, description, and acceptance-criteria checklist.
+- `FindingCard` — renders one Review Finding with severity pill + file:line evidence (placeholder data is fine for v1).
+- `AssertionCard` — renders one Review Assertion with `[x]`/`[ ]` glyph + evidence (placeholder data is fine).
+- `ReceiptCard` — renders the canonical Receipts fields (implement_metrics, review_summary, judge_model, plan_summary). Use placeholder data.
+- `ResponsiveGrid` — wrapper that applies the page layout (1 col default, 3 col on `lg:`).
+- `NavBar` — top-level responsive nav with hamburger on `< sm`.
+
+**The dashboard data is hardcoded fixtures for this smoke** — there is no real orchestrator running, so the task list is a `const FIXTURES: &[TaskSummary] = &[...]` in a `src/fixtures.rs` module. The fixture should include one of each task state (Idle, Planned, Implemented, Reviewed, Done, Rejected, Failed, Running) so the StatusPill is exercised against all 9 variants.
+
+### Server functions
+
+Wire up the read-side server functions (`tasks_list`, `task_get`) per SPEC §7.1. They shell out to `alps list --json` and `alps show --json` via `std::process::Command` — do NOT call `alps_core::persistence::list_tasks` directly from server functions (we want the JSON contract to be the source of truth, not in-process types — that's the whole point of the prereq work).
+
+Wire up `task_run` per SPEC §7.3: spawn `alps run --workdir X --deliverable-path Y --prompt-file Z` with the SIGTERM_LOG and TELEMETRY_LOG env vars set. For this smoke, the `task_run` button can also be a no-op that just navigates to `/tasks/new` — that's fine.
+
+Skip `task_cancel` (no-op), `task_log_stream` (no SSE), `task_diff` (stub), and `settings_get`/`set` (stub).
+
+## Explicitly deferred (do NOT implement in this smoke)
+
+- SSE log streaming (`task_log_stream`). Static log content from `<workdir>/.alps-telemetry.log` via a one-shot fetch would work for v1 but is deferred.
+- The Cancel button (render but no-op).
+- The Settings page (stub link is fine).
+- Mobile builds (`dx bundle --mobile --release`).
+- Authentication.
+- Live task polling — the dashboard uses fixtures, not real data.
+
+The Review agent should reject any attempt to implement these. The orchestrator's reject path will surface "you implemented too much" cleanly.
+
+## What success looks like
+
+The smoke PASSES when:
+
+1. `cd ~/Development/alps-gui && cargo build --bin alps-ui` succeeds.
+2. `cd ~/Development/alps-gui && cargo build --bin alps-ui --features fullstack` succeeds.
+3. `cd ~/Development/alps-gui && cargo clippy --bin alps-ui -- -D warnings` is clean (or has only pre-existing warnings unrelated to alps-ui).
+4. `cd ~/Development/alps-gui && dx serve` produces a Dioxus page at `http://127.0.0.1:8080` with the Dashboard rendered.
+5. The Dashboard renders fixtures for all 9 `TaskState` variants (visible via curl + grep on the served HTML, or via a Playwright snapshot if Playwright is available).
+6. No secrets in client-reachable code (anything that touches the filesystem is behind `#[cfg(feature = "server")]`).
+
+The smoke REJECTS if:
+
+- The `alps-ui` crate doesn't compile.
+- `clippy -D warnings` fails on alps-ui source.
+- The Dashboard doesn't render at least one of each `TaskState` variant.
+- Server functions are reachable from the client (missing `#[cfg(feature = "server")]`).
+- Code is written outside `~/Development/alps-gui`.
+
+## Operating notes
+
+- The orchestrator's structured DoD does NOT recognize a Dioxus project type yet (`ProjectType::Dioxus` doesn't exist in `DoDRunner::detect_project_type`). For this smoke, the structured DoD will report `Unknown` and skip the test invocation. **That is expected and acceptable.** The LLM Judge carries the whole verdict alone — the prompt explicitly says so. The structured-DoD extension for Dioxus is a separate, future item.
+- Inner Ralph iterations may take ~30s each (Dioxus compile is slower than Rust lib). Don't worry about iteration budget — the orchestrator's default `max_iterations=20` is fine.
+- If a sub-task fails because `dx` isn't on `$PATH`, surface it as a Judge REJECT reason rather than silently falling back. The wrapper / smoke environment is expected to have `dx` installed.
+- Don't add new dependencies without justifying them in the Review. The Cargo.toml in SPEC §4.1 is the full dep set; if you need something else, name it and explain why.
+
+**Write everything inside `~/Development/alps-gui`** (do NOT create files under `/tmp/`, `/home/`, or any path outside the deliverable path).

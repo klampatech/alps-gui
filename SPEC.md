@@ -1,18 +1,3 @@
----
-type: spec
-title: ALPS — Dioxus 0.7 UI (web + desktop + mobile, single Rust binary)
-date: '2026-08-23T17:00:00.000Z'
-status: draft
-private: false
-priority: medium
-projects:
-  - alps
-parent_project: alps
-supersedes: null
-ingested_via: 'human:evo'
-source_kind: 'human:evo'
----
-
 # ALPS — Dioxus 0.7 UI
 
 > **Source of truth (post-implementation):** `klampatech/alps` `SPEC.md` and `alps-ui/SPEC.md` (in-repo once it lands). This vault page is the planning doc to drive the implementation; SPEC.md gets the canonical sections once the design is approved.
