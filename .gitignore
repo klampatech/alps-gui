@@ -1,0 +1,27 @@
+# Rust / Cargo
+/target/
+/Cargo.lock
+
+# Dioxus / dx
+/dist/
+/.bundle/
+/.public/
+/node_modules/
+/.tmp/
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Secrets
+.env
+.env.local
