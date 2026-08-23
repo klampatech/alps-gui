@@ -6,19 +6,46 @@ Single Rust crate (`alps-ui/`, planned) that adds a web + desktop + mobile UI on
 
 ## Status
 
-🚧 **Spec drafted 2026-08-23.** No code yet. The design and acceptance criteria live in [`SPEC.md`](./SPEC.md).
+🚧 **Smoke A (Topic A + Topic E first cut) planned.** No code yet. The design and acceptance criteria live in:
 
-| What | Where |
-|---|---|
-| Full design | [`SPEC.md`](./SPEC.md) (~53 KB, 738 lines) |
-| Canonical spec (vault) | `~/Obsidian/projects/alps-ui-spec.md` |
-| Upstream orchestrator | [`klampatech/alps`](https://github.com/klampatech/alps) |
-| Dioxus reference | [dioxuslabs.com/learn/0.7](https://dioxuslabs.com/learn/0.7/) |
+- [`SPEC.md`](./SPEC.md) — full design (~58 KB, 738+ lines, updated 2026-08-23 with §4.2 workspace-layout decision)
+- [`DESIGN.md`](./DESIGN.md) — visual language, components, layout rules (~12 KB)
+- **Source of truth (vault):** `~/Obsidian/projects/alps-ui-spec.md` (mirrors SPEC.md)
+
+The orchestrator lives at [`klampatech/alps`](https://github.com/klampatech/alps) — separate repo, separate Cargo workspace. `alps-ui` depends on `alps-core` via `path = "../alps/alps-core"`. Both repos sit side-by-side on disk.
 
 ## Architecture in one sentence
 
-A Dioxus 0.7 fullstack crate (`alps-ui/`) added to the existing `klampatech/alps` Cargo workspace, sharing `alps-core` types directly, with one Rust binary that ships WASM (web), a WebView (desktop), or a native shell (mobile) from the same `rsx!{}` tree.
+A Dioxus 0.7 fullstack app (`alps-ui/`) that wraps the ALPS orchestrator's CLI — `alps list --json` for the task list, `alps show --json` for task detail, `alps run --prompt-file` to spawn new work. The UI is presentational; the orchestrator owns state.
+
+## Repository layout
+
+```
+klampatech/alps-gui/                     # THIS repo
+├── Cargo.toml                           # own Cargo workspace
+├── Dioxus.toml                          # Dioxus 0.7 config
+├── SPEC.md                              # full design (mirrors vault)
+├── DESIGN.md                            # visual + component rules
+├── README.md                            # you are here
+├── assets/                              # static assets (Tailwind, favicon)
+└── alps-ui/                             # the GUI crate (planned)
+    ├── Cargo.toml
+    ├── src/
+    └── tests/
+```
 
 ## Next step
 
-Topic A of the spec — add `alps-ui/` to the workspace + scaffold via `dx new` + wire `alps-core` as a dependency. Each topic is a 1-session coding task; see [`SPEC.md`](./SPEC.md) §12.
+**Smoke A** — Topic A (workspace + scaffold + `alps-core` path dep) and the first cut of Topic E (Dashboard page with fixtures, no SSE). The orchestrator runs this smoke against this repo via:
+
+```bash
+PROMPT_FILE=$(mktemp -t alps-prompt.XXXXXX.txt)
+# ... write smoke prompt to $PROMPT_FILE ...
+mkdir -p ~/Development/alps-runs/alps-gui-smoke-A
+alps run \
+    --workdir ~/Development/alps-runs/alps-gui-smoke-A \
+    --deliverable-path ~/Development/alps-gui \
+    --prompt-file "$PROMPT_FILE"
+```
+
+See `SPEC.md` §12 for the full Topic A–G implementation milestones. Smoke A covers A + first part of E.

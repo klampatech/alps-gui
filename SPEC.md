@@ -161,9 +161,69 @@ fullstack = ["dioxus/fullstack"]  # production deployment shape — single binar
 
 `fullstack` activates Dioxus's own meta-feature (which combines `web` + `server` and re-exports the fullstack types). Per the in-band Dioxus 0.7 skill: "`fullstack` = Combined `web` + `server` shortcuts + types." The release-0.7.0 announcement confirms `ServerEvents`, `Websocket` + `use_websocket`, `Streaming`, and typed `Form` are all first-party in 0.7's fullstack surface. Mobile and desktop use the same WASM client; only the runtime shell differs.
 
-### 4.2 Workspace integration
+### 4.2 Workspace integration — two viable layouts
 
-The existing `Cargo.toml` workspace at `klampatech/alps/Cargo.toml` currently has `members = ["alps-core", "alps-cli"]`. We append `"alps-ui"`. This keeps the existing 184-test suite green and makes the UI a peer of `alps-cli` (it can use `alps-core` types directly without re-exporting). CI in `.github/workflows/ci.yaml` (PR #1, ubuntu-latest) automatically picks up the new crate — no CI changes needed.
+The SPEC originally proposed adding `alps-ui/` as a third member of the
+existing `klampatech/alps` Cargo workspace. After discussion with Kyle
+(2026-08-23), the chosen layout is different: **the `alps-ui/` crate
+lives in its own workspace inside `klampatech/alps-gui/`, depending on
+`alps-core` via a path dependency.** This keeps the alps-gui repo
+self-contained and gives the GUI its own release cadence independent
+of the orchestrator's.
+
+**Layout (chosen):**
+
+```
+klampatech/alps/                       # Cargo workspace [web/desktop/mobile/server]
+├── alps-core/                         # existing, unchanged
+└── alps-cli/                          # existing, unchanged
+
+klampatech/alps-gui/                   # SEPARATE Cargo workspace [web/desktop/mobile/server/fullstack]
+├── Cargo.toml                         # own [workspace] block; alps-ui + assets
+├── Dioxus.toml
+├── SPEC.md                            # copy of vault spec
+├── DESIGN.md                          # the design constraints
+├── README.md
+├── assets/
+└── alps-ui/                           # the GUI crate
+    ├── Cargo.toml                     # depends on alps-core via path = "../alps/alps-core"
+    ├── src/
+    └── tests/
+```
+
+The `alps-ui` crate's `Cargo.toml` references `alps-core` via path:
+
+```toml
+[dependencies]
+alps-core = { path = "../alps/alps-core" }
+```
+
+(or via a git URL once `klampatech/alps-core` is published as a crate
+— but path is correct for v1 since both repos live on the same
+workstation).
+
+**Why a separate workspace instead of `klampatech/alps` membership:**
+
+- Self-containment — `klampatech/alps-gui` ships as its own product.
+- Release cadence independence — the orchestrator is on its own
+  versioning track (currently v0.8, will go v1.0); the GUI can
+  iterate faster without forcing a release of the orchestrator.
+- CI isolation — `klampatech/alps-gui`'s PR checks don't need to
+  re-run the orchestrator's 184-test suite.
+- Clear repo ownership — Dioxus-specific tooling (`dx`, Tailwind,
+  Playwright snapshots) doesn't pollute the orchestrator repo.
+
+**Trade-off we accept:** two CI matrices, two `Cargo.lock` files, two
+release pipelines. Acceptable for a long-lived feature branch on the
+orchestrator side.
+
+**Why this isn't an `alps-core` API break:** the GUI only consumes
+`alps-core` types via the `alps list --json` / `alps show --json`
+CLI surface (per the prereq work on 2026-08-23). Direct
+`alps_core::domain` / `alps_core::receipt` imports are used inside
+the type signatures of the read-side JSON contract — those are the
+public, stable types. If `alps-core`'s internal API changes, the
+GUI's CI catches it.
 
 ## 5. Routing — the type-safe `Routable` enum
 
