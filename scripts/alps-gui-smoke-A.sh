@@ -15,13 +15,14 @@
 #      post-mortem analysis
 #
 # Usage:
-#   ./scripts/alps-gui-smoke-A.sh [--label <name>]
+#   ./scripts/alps-gui-smoke-A.sh [--label <name>] [--dry-run]
 #
-# Outputs:
-#   ~/Development/alps-runs/<label>/stderr.log      (orchestrator FD-2)
-#   ~/Development/alps-runs/<label>/telemetry.log  (elog! lines)
-#   ~/Development/alps-runs/<label>/sigterm.log    (signal handler marker)
-#   ~/Development/alps-gui/                        (the deliverable)
+# Environment overrides (any of these):
+#   ALPS_GUI_SMOKE_LABEL            default: alps-gui-smoke-A
+#   ALPS_GUI_SMOKE_WORKDIR_PARENT   default: ~/Development/alps-runs
+#   ALPS_GUI_SMOKE_DELIVERABLE_PATH default: ~/Development/alps-gui
+#   ALPS_GUI_SMOKE_PROMPT_FILE      default: ./scripts/prompts/smoke-A.txt
+#   ALPS_GUI_SMOKE_LOG_PREFIX       default: /tmp/alps-gui-smoke-A
 
 set -euo pipefail
 
@@ -35,20 +36,54 @@ DELIVERABLE_PATH="${ALPS_GUI_SMOKE_DELIVERABLE_PATH:-$HOME/Development/alps-gui}
 PROMPT_FILE="${ALPS_GUI_SMOKE_PROMPT_FILE:-$HOME/Development/alps-gui/scripts/prompts/smoke-A.txt}"
 LOG_PREFIX="${ALPS_GUI_SMOKE_LOG_PREFIX:-/tmp/alps-gui-smoke-A}"
 
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run) DRY_RUN=true; shift ;;
+        --label) LABEL="$2"; shift 2 ;;
+        --workdir-parent) WORKDIR_PARENT="$2"; shift 2 ;;
+        --deliverable-path) DELIVERABLE_PATH="$2"; shift 2 ;;
+        --prompt-file) PROMPT_FILE="$2"; shift 2 ;;
+        --log-prefix) LOG_PREFIX="$2"; shift 2 ;;
+        -h|--help)
+            sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
+            exit 0
+            ;;
+        *)
+            echo "error: unknown argument: $1" >&2
+            exit 2
+            ;;
+    esac
+done
+
 WORKDIR="$WORKDIR_PARENT/$LABEL"
 STDERR_LOG="${LOG_PREFIX}-stderr.log"
 TELEMETRY_LOG="${LOG_PREFIX}-telemetry.log"
 SIGTERM_LOG="${LOG_PREFIX}-sigterm.log"
+ALPS_BIN="$HOME/Development/alps/target/release/alps"
 
 # ─────────────────────────────────────────────────────────────────────
 # Pre-flight
 # ─────────────────────────────────────────────────────────────────────
 
+if [ -d "$WORKDIR" ]; then
+    echo "error: workdir $WORKDIR already exists; refusing to clobber" >&2
+    echo "  → if you really want to re-run, delete it first" >&2
+    exit 2
+fi
+
+if [ "${DRY_RUN:-false}" = true ]; then
+    echo "[alps-gui-smoke] (dry-run mode — skipping cargo build + alps launch)"
+    [ ! -x "$ALPS_BIN" ] && echo "  → $ALPS_BIN not found; cargo build --workspace --release needed before real run" >&2
+    [ ! -f "$PROMPT_FILE" ] && echo "  → prompt file not found at $PROMPT_FILE" >&2
+    [ ! -d "$DELIVERABLE_PATH" ] && echo "  → deliverable path $DELIVERABLE_PATH does not exist" >&2
+    echo "[alps-gui-smoke] ✓ preflight OK (dry-run; not launching alps)"
+    exit 0
+fi
+
 # Build the orchestrator first so a smoke can't begin with a stale binary.
 echo "[alps-gui-smoke] building alps CLI..."
 (cd "$HOME/Development/alps" && cargo build --workspace --release) >/dev/null
 
-ALPS_BIN="$HOME/Development/alps/target/release/alps"
 if [ ! -x "$ALPS_BIN" ]; then
     echo "error: $ALPS_BIN not found after cargo build" >&2
     echo "  → cargo test --workspace --no-run does NOT produce the binary" >&2
@@ -67,15 +102,7 @@ if [ ! -d "$DELIVERABLE_PATH" ]; then
     exit 2
 fi
 
-# Fresh workdir per smoke — never reuse across runs.
-if [ -d "$WORKDIR" ]; then
-    echo "error: workdir $WORKDIR already exists; refusing to clobber" >&2
-    echo "  → if you really want to re-run, delete it first" >&2
-    exit 2
-fi
 mkdir -p "$WORKDIR"
-
-# Diagnostic log files
 : > "$STDERR_LOG"
 : > "$TELEMETRY_LOG"
 : > "$SIGTERM_LOG"
@@ -113,7 +140,7 @@ echo "[alps-gui-smoke] alps exited with code $exit_code"
 if [ -f "$HOME/Development/alps-gui/alps-ui/Cargo.toml" ]; then
     echo "[alps-gui-smoke] ✓ alps-ui/Cargo.toml exists"
 else
-    echo "[alps-gui-smoke] ✗ alps-ui/Cargo.toml MISSING"
+    echo "[alps-gui-smoke] � alps-ui/Cargo.toml MISSING"
 fi
 
 if [ -f "$HOME/Development/alps-gui/alps-ui/src/main.rs" ]; then
