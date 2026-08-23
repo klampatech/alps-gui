@@ -76,8 +76,39 @@ if [ "${DRY_RUN:-false}" = true ]; then
     [ ! -x "$ALPS_BIN" ] && echo "  → $ALPS_BIN not found; cargo build --workspace --release needed before real run" >&2
     [ ! -f "$PROMPT_FILE" ] && echo "  → prompt file not found at $PROMPT_FILE" >&2
     [ ! -d "$DELIVERABLE_PATH" ] && echo "  → deliverable path $DELIVERABLE_PATH does not exist" >&2
+    EXPECTED_BRANCH="${ALPS_GUI_SMOKE_EXPECTED_BRANCH:-feat/alps-gui-prereq}"
+    actual_branch=$(cd "$HOME/Development/alps" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+    if [ "$actual_branch" != "$EXPECTED_BRANCH" ]; then
+        echo "  → alps repo on '$actual_branch', expected '$EXPECTED_BRANCH' (the pre-req branch)" >&2
+    else
+        local_sha=$(cd "$HOME/Development/alps" && git rev-parse HEAD 2>/dev/null)
+        echo "  → alps branch OK: $actual_branch @ $local_sha"
+    fi
     echo "[alps-gui-smoke] ✓ preflight OK (dry-run; not launching alps)"
     exit 0
+fi
+
+# Branch guard — refuse to build from main or any non-feature branch.
+# The pre-req (alps list / alps show JSON contract) lives on a feature
+# branch; building from main would silently miss it. Override with
+# ALPS_GUI_SMOKE_SKIP_BRANCH_CHECK=1 if you really mean to.
+EXPECTED_BRANCH="${ALPS_GUI_SMOKE_EXPECTED_BRANCH:-feat/alps-gui-prereq}"
+actual_branch=$(cd "$HOME/Development/alps" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+if [ "${ALPS_GUI_SMOKE_SKIP_BRANCH_CHECK:-0}" != "1" ]; then
+    if [ "$actual_branch" != "$EXPECTED_BRANCH" ]; then
+        echo "error: alps repo is on branch '$actual_branch', expected '$EXPECTED_BRANCH'" >&2
+        echo "  → the alps-gui pre-req (alps list / alps show --json) lives on $EXPECTED_BRANCH" >&2
+        echo "  → to switch:  cd ~/Development/alps && git checkout $EXPECTED_BRANCH" >&2
+        echo "  → to override: ALPS_GUI_SMOKE_SKIP_BRANCH_CHECK=1 $0" >&2
+        exit 2
+    fi
+    # Also assert HEAD matches the remote tip — catches "I forgot to push".
+    local_sha=$(cd "$HOME/Development/alps" && git rev-parse HEAD 2>/dev/null || echo "unknown")
+    remote_sha=$(cd "$HOME/Development/alps" && git rev-parse origin/$EXPECTED_BRANCH 2>/dev/null || echo "unknown")
+    if [ "$local_sha" != "$remote_sha" ] && [ "$remote_sha" != "unknown" ]; then
+        echo "warning: local HEAD ($local_sha) does not match origin/$EXPECTED_BRANCH ($remote_sha)" >&2
+        echo "  → the smoke will build from local HEAD; push first if you want a stable reference" >&2
+    fi
 fi
 
 # Build the orchestrator first so a smoke can't begin with a stale binary.
@@ -101,8 +132,6 @@ if [ ! -d "$DELIVERABLE_PATH" ]; then
     echo "  → did you forget to git init + commit the SPEC.md / DESIGN.md?" >&2
     exit 2
 fi
-
-mkdir -p "$WORKDIR"
 : > "$STDERR_LOG"
 : > "$TELEMETRY_LOG"
 : > "$SIGTERM_LOG"
@@ -114,6 +143,7 @@ echo "[alps-gui-smoke] stderr log:        $STDERR_LOG"
 echo "[alps-gui-smoke] telemetry log:     $TELEMETRY_LOG"
 echo "[alps-gui-smoke] sigterm log:       $SIGTERM_LOG"
 echo "[alps-gui-smoke] alps binary:       $ALPS_BIN"
+echo "[alps-gui-smoke] alps branch:       $actual_branch @ ${local_sha:-unknown}"
 
 # ─────────────────────────────────────────────────────────────────────
 # Run
