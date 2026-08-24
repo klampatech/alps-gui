@@ -1,53 +1,64 @@
 //! Dashboard page (`/`).
 //!
-//! US-005 replaces the US-003 placeholder with the real layout:
-//! a three-section responsive grid that composes the NewTask form,
-//! the `FIXTURES` task list (one row per normal `TaskState` variant),
-//! and a "Recent activity" placeholder. Everything reads from the
-//! hardcoded fixture list — no live `use_resource` call yet (that
-//! wiring lands in a follow-up story once the read-side server
-//! functions ship in US-006/008).
+//! M1 (smoke-A2): live data — calls `api::tasks_list(WORKDIR)` via
+//! `use_resource` and renders the response. Replaces the smoke #1
+//! FIXTURES-based fallback.
+//!
+//! The Dashboard module is gated on `feature = "server"` because it
+//! calls `tasks_list`, which shells out to `alps list --json`. The
+//! shell-out can't run in the browser, so the wasm-only build path
+//! gets a minimal "run with --features server" stub via
+//! `pages::dashboard_fallback` instead.
 //!
 //! ## Layout (DESIGN.md §3 + §5)
 //!
 //! - Outer shell: `p-4 sm:p-6 lg:p-8 space-y-4` — DESIGN.md §2 page
-//!   padding scale, with `space-y-4` between the page header and the
-//!   responsive grid.
+//!   padding scale.
 //! - `<h1>`: `text-2xl font-semibold text-slate-800` — DESIGN.md §4
 //!   heading style.
-//! - ResponsiveGrid: 1-col default / 3-col on `lg:` — three sections
-//!   stacked on mobile, side-by-side on desktop.
+//! - Right of the heading: a `↻ Reload` button (calls
+//!   `resource.restart()` to re-fetch `tasks_list`).
+//! - ResponsiveGrid: 1-col default / 3-col on `lg:`.
 //!
-//! ## Sections (DESIGN.md §3 + US-005 acceptance #3)
+//! ## Sections (DESIGN.md §3)
 //!
 //! 1. NewTask form — `<form>` with a textarea for the prompt and a
-//!    Submit button. The submit handler is a no-op for v1 (calls
-//!    `prevent_default` so the page doesn't reload); the real
-//!    `task_run` server-function call lands in US-006.
-//! 2. Task list — `FIXTURES` rendered as cards. Each card shows a
-//!    `StatusPill`, the `prompt_excerpt`, attempt count, and elapsed
-//!    time. A `for` loop iterates over `FIXTURES.iter()` with a stable
-//!    `key` derived from `task_id`.
+//!    Submit button. Submit handler is a no-op until M2 wires
+//!    `task_run`.
+//! 2. Task list — renders the live `TaskList.tasks`. Renders a
+//!    loading state while `use_resource` is `Pending`, an error
+//!    banner if `tasks_list` returned `Err`, an empty-state card if
+//!    the list is empty, or one `TaskCard` per task otherwise.
 //! 3. Recent activity — placeholder text "Recent log — coming in v2"
-//!    inside the standard card chrome (DESIGN.md §2).
+//!    (SSE-based log streaming lands in M3).
 //!
-//! ## Why `FIXTURES` is a `LazyLock` and not a `const` array
+//! ## Why a top-level `WORKDIR` constant (not yet a settings hook)
 //!
-//! `TaskSummary` has `String` fields; constructing a non-empty `String`
-//! in a `const` context requires heap allocation which isn't stable in
-//! Rust 1.83+. The fixtures module uses `LazyLock<Vec<TaskSummary>>`,
-//! so the dashboard iterates via `FIXTURES.iter()` (each item is
-//! `&TaskSummary`) and the slice returned by `&*FIXTURES` is
-//! `&'static [TaskSummary]`. See `fixtures.rs` for the full rationale.
+//! M1 needs a workdir to pass to `tasks_list`. The right long-term
+//! answer is the Settings page (M4) which surfaces the workdir as
+//! editable + persisted to `~/.config/alps/ui.toml`. Until then, a
+//! `pub const` here is the smallest workable surface — it lets the
+//! Dashboard compile and exercise the live `tasks_list` path today,
+//! and the Settings page (M4) will replace this constant with a
+//! `Signal<String>` read from settings.
 use dioxus::prelude::*;
 
+use crate::api::tasks_list;
 use crate::components::{ResponsiveGrid, StatusPill};
-use crate::fixtures::FIXTURES;
+
+/// Default workdir the Dashboard reads tasks from.
+///
+/// Override with the `ALPS_UI_WORKDIR` env var at serve time (the
+/// `dx serve --` invocation picks it up via `std::env::var`). Once
+/// M4 lands, this constant disappears and the workdir is read from
+/// the persisted Settings (with this env-var as the cold-start
+/// fallback).
+fn default_workdir() -> String {
+    std::env::var("ALPS_UI_WORKDIR")
+        .unwrap_or_else(|_| format!("{}/Development/alps-runs", env!("HOME")))
+}
 
 /// Format a duration in seconds as a short human-readable string.
-///
-/// Examples: `0 → "0s"`, `45 → "45s"`, `7320 → "2h 2m"`,
-/// `525600 → "6d 6h"`. Used in the task list cards' "elapsed" cell.
 fn format_elapsed(secs: u64) -> String {
     if secs < 60 {
         return format!("{}s", secs);
@@ -65,25 +76,75 @@ fn format_elapsed(secs: u64) -> String {
     format!("{}d {}h", days, hours)
 }
 
-/// Format a `DateTime<Utc>` as a short `MM-DD HH:MM` string for the
-/// "created" cell. UTC is intentional — the orchestrator's clock and
-/// the GUI's clock are both UTC, so a single explicit offset keeps the
-/// fixture list readable without TZ confusion in the smoke run.
+/// Format a `DateTime<Utc>` as a short `MM-DD HH:MM` string.
 fn format_created_at(dt: chrono::DateTime<chrono::Utc>) -> String {
     dt.format("%m-%d %H:%M").to_string()
 }
 
 #[component]
 pub fn Dashboard() -> Element {
+    // Live task list — `use_resource` fires the `tasks_list` async
+    // work after mount. In SSR mode (`dx serve --platform server`),
+    // the SSR'd HTML shows the LoadingCard because the resource
+    // hasn't resolved by render time. After hydration, the browser
+    // makes a real POST to `/api/tasks_list` and the dashboard
+    // re-renders with the live task cards.
+    //
+    // We tried `use_loader` for SSR-aware blocking, but Dioxus 0.7's
+    // `#[server]` macro-generated code calls `FullstackContext::extract`
+    // which only succeeds in the HTTP dispatch path — so SSR-mode
+    // `use_loader` errors with "FullstackContext not initialized".
+    // Sticking with `use_resource` keeps the read-side code simple
+    // and works in both SSR and wasm modes. The verify-us-007 #5
+    // contract (M1 Dashboard markers present in SSR'd HTML) holds
+    // because the loading skeleton still includes the page header +
+    // section title + workdir subheader.
+    //
+    // M1 milestone cleanup — when Dioxus 0.7 fixes the SSR server-fn
+    // dispatch (or when we add `use_loader` to a Dioxus release that
+    // supports it), this can switch to `use_loader` for the snappier
+    // first-paint with live data.
+    let workdir_signal = use_signal(default_workdir);
+    let mut tasks_resource = use_resource(move || {
+        let wd = workdir_signal.cloned();
+        async move { tasks_list(wd).await }
+    });
+
+    // Re-fetch on Reload click. `use_resource::restart()` cancels the
+    // current task and starts a new one.
+    let loader_view = match &*tasks_resource.read_unchecked() {
+        None => rsx! { LoadingCard {} },
+        Some(Ok(list)) if list.tasks.is_empty() => rsx! { EmptyCard {} },
+        Some(Ok(list)) => rsx! {
+            for task in list.tasks.iter() {
+                TaskCard { task: task.clone() }
+            }
+        },
+        Some(Err(e)) => rsx! { ErrorCard { error: format!("{e:?}") } },
+    };
+
+    let is_pending = !tasks_resource.finished();
+
     rsx! {
         div { class: "p-4 sm:p-6 lg:p-8 space-y-4",
-            h1 { class: "text-2xl font-semibold text-slate-800", "Dashboard" }
+            div { class: "flex items-baseline justify-between gap-4",
+                h1 { class: "text-2xl font-semibold text-slate-800", "Dashboard" }
+                button {
+                    class: "rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50",
+                    title: "Reload tasks from {workdir_signal.cloned()}",
+                    disabled: is_pending,
+                    onclick: move |_| tasks_resource.restart(),
+                    "↻ Reload"
+                }
+            }
             p { class: "text-sm text-slate-600",
-                "Tasks shown below are the US-005 fixture list. A live list arrives when the read-side server function lands."
+                "Reading tasks from "
+                span { class: "font-mono text-xs text-slate-700", "{workdir_signal.cloned()}" }
+                " — submit one with the New task form on the left."
             }
             ResponsiveGrid {
                 NewTaskSection {}
-                TaskListSection {}
+                TaskListSection { view: loader_view }
                 RecentActivitySection {}
             }
         }
@@ -92,21 +153,19 @@ pub fn Dashboard() -> Element {
 
 /// (1) NewTask form — text area + Submit button.
 ///
-/// US-005 acceptance #3 says this section's submit handler is a
-/// no-op; we attach `prevent_default` to the submit event so the
-/// browser doesn't reload the page. US-006 replaces the no-op with a
-/// `task_run` server-function call.
+/// Submit handler is a no-op until M2 wires `task_run`. M1 just
+/// keeps the visual surface so the page layout doesn't shift when
+/// the real spawn lands.
 #[component]
 fn NewTaskSection() -> Element {
     rsx! {
         div { class: "rounded-lg border border-slate-200 bg-white p-4 shadow-sm space-y-3",
             h2 { class: "text-base font-medium text-slate-800", "New task" }
             p { class: "text-xs text-slate-500",
-                "Describe what you want the orchestrator to do. Submit lands on the real `task_run` server function in US-006."
+                "Describe what you want the orchestrator to do. Submit lands on the real `task_run` server function in M2."
             }
             form {
                 class: "space-y-2",
-                // No-op v1: prevent the browser from reloading.
                 onsubmit: move |evt| evt.prevent_default(),
                 textarea {
                     class: "w-full rounded-md border border-slate-300 bg-white p-2 text-sm text-slate-800 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500",
@@ -125,36 +184,69 @@ fn NewTaskSection() -> Element {
     }
 }
 
-/// (2) Task list — one card per `FIXTURES` row.
+/// (2) Task list — renders the pre-computed `view: Element` from
+/// the parent `Dashboard`'s `use_loader`.
 ///
-/// Each card shows the `StatusPill`, the `prompt_excerpt` (truncated
-/// to 200 chars — already enforced by the fixture module), the
-/// attempt count, and elapsed time. The cards stack vertically in the
-/// leftmost grid column on `lg:`.
+/// `Dashboard` does the loading/error/empty/list branching and passes
+/// an `Element` here. Keeping the branching in the parent means the
+/// `use_loader` is called exactly once (the parent) and `TaskListSection`
+/// stays a thin wrapper that just provides the section heading +
+/// grid span.
 #[component]
-fn TaskListSection() -> Element {
+fn TaskListSection(view: Element) -> Element {
     rsx! {
         div { class: "space-y-3 lg:col-span-2",
             h2 { class: "text-base font-medium text-slate-800", "Tasks" }
-            for task in FIXTURES.iter() {
-                // Stable per-task key — task_id is unique across fixtures.
-                TaskCard { task: task.clone() }
+            {view}
+        }
+    }
+}
+
+/// Placeholder shown while `tasks_list` is in flight.
+#[component]
+fn LoadingCard() -> Element {
+    rsx! {
+        div { class: "rounded-lg border border-slate-200 bg-white p-4 shadow-sm space-y-2",
+            div { class: "h-4 w-24 animate-pulse rounded bg-slate-200" }
+            div { class: "h-3 w-full animate-pulse rounded bg-slate-100" }
+            div { class: "h-3 w-2/3 animate-pulse rounded bg-slate-100" }
+            p { class: "text-xs text-slate-500", "Loading tasks…" }
+        }
+    }
+}
+
+/// Error banner — the `tasks_list` server fn returned `Err`.
+#[component]
+fn ErrorCard(error: String) -> Element {
+    rsx! {
+        div { class: "rounded-lg border border-rose-300 bg-rose-50 p-4 shadow-sm space-y-2",
+            h3 { class: "text-sm font-medium text-rose-800", "Failed to load tasks" }
+            p { class: "text-xs text-rose-700 font-mono break-all", "{error}" }
+            p { class: "text-xs text-rose-700",
+                "Check that `alps` is on $PATH and that the workdir contains a `tasks/` subdir."
+            }
+        }
+    }
+}
+
+/// Empty-state — `tasks_list` returned `Ok` with zero tasks.
+#[component]
+fn EmptyCard() -> Element {
+    rsx! {
+        div { class: "rounded-lg border border-slate-200 bg-white p-4 shadow-sm space-y-2",
+            h3 { class: "text-sm font-medium text-slate-700", "No tasks yet" }
+            p { class: "text-sm text-slate-600",
+                "Submit one with the New task form on the left, or run "
+                span { class: "font-mono text-xs", "alps run --workdir <path> --prompt-file <file>" }
+                " from the terminal to seed the list."
             }
         }
     }
 }
 
 /// One task card: `StatusPill` + `prompt_excerpt` + meta row.
-///
-/// The card itself lives in this module rather than `components/`
-/// because it's US-005-specific layout (no future page needs the same
-/// shape — TaskDetail will use `StoryCard` / `ReceiptCard` /
-/// `FindingCard` for its content, not a task-summary card).
 #[component]
 fn TaskCard(task: crate::domain::TaskSummary) -> Element {
-    // Hoist format!() outputs OUTSIDE rsx! — Dioxus 0.7 rsx format-string
-    // interpolation can't contain inner `{...}` braces (see US-004's
-    // learning about the rsx parser tripping on `format!("{:?}", x)`).
     let elapsed_display = task
         .elapsed_secs
         .map(format_elapsed)
@@ -183,10 +275,6 @@ fn TaskCard(task: crate::domain::TaskSummary) -> Element {
 }
 
 /// (3) Recent activity — stub card.
-///
-/// Renders "Recent log — coming in v2" inside the canonical card chrome
-/// per DESIGN.md §2. SSE-based log streaming lands in a follow-up story
-/// (out of smoke scope per US-008 acceptance #3).
 #[component]
 fn RecentActivitySection() -> Element {
     rsx! {
@@ -196,6 +284,10 @@ fn RecentActivitySection() -> Element {
         }
     }
 }
+
+// `ServerFnError` is `Debug`-only (no `Display`), so the ErrorCard
+// formats via `{e:?}`. No additional re-export needed — `ServerFnError`
+// is imported at the top of this file from `crate::api`.
 
 #[cfg(test)]
 mod tests {
@@ -228,43 +320,32 @@ mod tests {
         assert_eq!(format_elapsed(604_800), "7d 0h");
     }
 
+    /// M1 contract: the Dashboard SSR'd HTML always shows the page
+    /// header + the "Tasks" section heading. With `use_resource`, the
+    /// task cards themselves are async-loaded on the client; in SSR
+    /// they show the loading skeleton. The 8-state-label assertion
+    /// from smoke #1 (which used FIXTURES) no longer applies — tasks
+    /// now come from a live `tasks_list` call, which is empty in the
+    /// SSR initial render before the resource resolves.
     #[test]
-    fn dashboard_renders_eight_fixture_state_labels() {
-        // Smoke test that the dashboard actually mounts the 8 FIXTURES
-        // through `StatusPill`. The StatusPill unit tests cover each
-        // individual pill; this test catches regressions where the
-        // Dashboard's `for` loop is dropped or the FIXTURES list is
-        // accidentally truncated.
+    fn dashboard_ssr_shows_header_and_section_title() {
         use crate::pages::Dashboard;
 
         let html = dioxus_ssr::render_element(rsx! {
             Dashboard {}
         });
 
-        // All 8 normal state labels must appear in the rendered HTML.
-        // (Unknown is intentionally absent from FIXTURES.)
-        for label in [
-            "Idle",
-            "Planned",
-            "Implemented",
-            "Reviewed",
-            "Running",
-            "Done",
-            "Rejected",
-            "Failed",
-        ] {
-            let occurrences = html.matches(label).count();
-            assert!(
-                occurrences >= 1,
-                "Dashboard HTML should contain at least one '{label}' label, but found {occurrences}",
-            );
-        }
-
-        // Unknown should NOT appear as a fixture label — it only shows
-        // up via the StatusPill unit test.
         assert!(
-            !html.contains("Unknown"),
-            "Dashboard HTML should NOT contain 'Unknown' (it's a corruption-only state)",
+            html.contains("Dashboard"),
+            "Dashboard header should render in SSR"
+        );
+        assert!(
+            html.contains("Tasks"),
+            "Tasks section heading should render in SSR"
+        );
+        assert!(
+            html.contains("Reading tasks from"),
+            "Dashboard should advertise the workdir it's reading from"
         );
     }
 }

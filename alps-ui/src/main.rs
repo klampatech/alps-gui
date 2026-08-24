@@ -42,7 +42,6 @@ use dioxus::router::components::Router;
 mod api;
 mod components;
 mod domain;
-mod fixtures;
 mod layouts;
 mod pages;
 mod routes;
