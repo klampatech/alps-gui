@@ -169,23 +169,29 @@ fi
 
 echo "--- US-007 #4-#6: dx serve --platform=server --features=server on port $PORT ---"
 LOG="$LOG_DIR/acceptance-4-serve.log"
-timeout 240 dx serve --port "$PORT" --platform server --package alps-ui --features server \
+timeout 480 dx serve --port "$PORT" --platform server --package alps-ui --features server \
     >"$LOG" 2>&1 &
 SERVE_PID=$!
 
-# Wait for the port to bind (up to 60 * 1s).
-for _ in $(seq 1 60); do
+# Wait for the port to bind. CI runners (where this script first runs
+# against a fresh cargo cache) can take 90s+ for dioxus-cli's first
+# compile + axum to register routes. 120s is enough headroom.
+for _ in $(seq 1 120); do
     sleep 1
     if ss -tlnp 2>/dev/null | grep -q "127.0.0.1:$PORT"; then
         break
     fi
 done
 
-# Let axum finish registering the server-fn endpoints after bind.
-sleep 3
-
+# After bind, axum needs another moment to register the server-fn
+# endpoints. On the first request, dioxus-cli may also proxy through
+# a separate wasm-dev-server that needs its own warm-up window.
+# Poll the index URL up to 30 times, accepting HTTP 200 OR a
+# "backend not ready" page (which dx serves while the wasm dev
+# server is still compiling). We only fail if 30 consecutive polls
+# all return connection-refused or 500.
 if ! ss -tlnp 2>/dev/null | grep -q "127.0.0.1:$PORT"; then
-    echo "  FAIL: dx serve did not bind 127.0.0.1:$PORT within 60s."
+    echo "  FAIL: dx serve did not bind 127.0.0.1:$PORT within 120s."
     tail -50 "$LOG"
     cleanup_serve
     exit 1
@@ -193,9 +199,16 @@ fi
 echo "  dx serve bound 127.0.0.1:$PORT"
 
 HTML_TMP="$(mktemp)"
-HTTP_CODE=$(curl -s -o "$HTML_TMP" -w "%{http_code}" "http://127.0.0.1:$PORT/" || echo "curl-failed")
+HTTP_CODE=""
+for attempt in $(seq 1 30); do
+    HTTP_CODE=$(curl -s -o "$HTML_TMP" -w "%{http_code}" "http://127.0.0.1:$PORT/" || echo "curl-failed")
+    if [ "$HTTP_CODE" = "200" ]; then
+        break
+    fi
+    sleep 2
+done
 if [ "$HTTP_CODE" != "200" ]; then
-    echo "  FAIL: curl returned HTTP $HTTP_CODE"
+    echo "  FAIL: curl returned HTTP $HTTP_CODE after 30 attempts"
     head -20 "$HTML_TMP"
     cleanup_serve
     exit 1
