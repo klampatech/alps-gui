@@ -1,12 +1,12 @@
 //! ALPS UI — entry point.
 //!
 //! See `SPEC.md` and `DESIGN.md` in the repo root for the full design.
-//! This is the first-cut scaffold (US-001 + US-002 + US-003): a Dioxus 0.7
+//! This is the first-cut scaffold (US-001 → US-004): a Dioxus 0.7
 //! fullstack app that ships web / desktop / mobile from a single `rsx!{}`
 //! tree, backed by read-side server functions (US-006) over the `alps-core`
 //! domain types re-exported from `crate::domain`.
 //!
-//! ## Module map (as of US-003)
+//! ## Module map (as of US-004)
 //!
 //! - `domain` — UI-side mirror of `alps_core::summary` / `receipt` / `domain`
 //!   types. Only `TaskId` is re-declared (a thin newtype used as a typed
@@ -16,6 +16,11 @@
 //!   now only `NavBar` (the responsive top-bar + hamburger + Outlet).
 //! - `pages` — one placeholder component per `Route` variant. US-005 fills
 //!   in `Dashboard`; US-006+ fills in the rest as server functions land.
+//! - `components` — the named presentation fragments from DESIGN.md §4:
+//!   `StatusPill`, `StoryCard`, `FindingCard`, `AssertionCard`,
+//!   `ReceiptCard`, `ResponsiveGrid`. US-005 wires them into the
+//!   Dashboard; US-006+ wires them into TaskDetail once server functions
+//!   arrive.
 //!
 //! ## Why `dioxus::router` (not `dioxus_router`)
 //!
@@ -28,6 +33,7 @@
 use dioxus::prelude::*;
 use dioxus::router::components::Router;
 
+mod components;
 mod domain;
 mod layouts;
 mod pages;
