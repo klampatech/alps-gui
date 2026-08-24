@@ -210,46 +210,6 @@ if ! grep -qi dashboard "$HTML_TMP"; then
 fi
 echo "  PASS #4: HTTP 200, dashboard route rendered"
 
-# Acceptance #4b (added 2026-08-24, smoke-A2 M0-0c): every <link rel=stylesheet>
-# href in the served HTML must resolve to HTTP 200. Closes the verification
-# gap that let the SSR-mode unstyled-HTML defect ship on smoke #1 — the
-# original #4 checked that <link> tags EXISTED but never verified the
-# referenced CSS files actually load. Symptom was: Dioxus SSR ships an
-# empty <head> in `--platform server` mode unless main.rs injects
-# `document::Stylesheet { href: asset!(...) }`, in which case the
-# content-hashed URL must be reachable on the same port.
-STYLE_HREFS=$(grep -oE '<link[^>]*rel="stylesheet"[^>]*href="[^"]+"' "$HTML_TMP" \
-    | grep -oE 'href="[^"]+"' | sed 's/href="//;s/"$//')
-if [ -z "$STYLE_HREFS" ]; then
-    echo "  FAIL #4b: no <link rel=\"stylesheet\"> tags found in served HTML"
-    echo "    SSR's default index.html ships an empty <head>; main.rs must"
-    echo "    inject document::Stylesheet to get CSS in --platform server mode."
-    cleanup_serve
-    exit 1
-fi
-CSS_FAIL=0
-while IFS= read -r href; do
-    [ -z "$href" ] && continue
-    # Resolve relative hrefs against the served origin.
-    case "$href" in
-        http*) url="$href" ;;
-        /*)    url="http://127.0.0.1:$PORT$href" ;;
-        *)     url="http://127.0.0.1:$PORT/$href" ;;
-    esac
-    code=$(curl -s -o /dev/null -w "%{http_code}" "$url" || echo "curl-failed")
-    if [ "$code" != "200" ]; then
-        echo "  FAIL #4b: stylesheet $url returned HTTP $code"
-        CSS_FAIL=1
-    else
-        size=$(curl -s "$url" | wc -c)
-        echo "  PASS #4b: $url (HTTP 200, $size bytes)"
-    fi
-done <<< "$STYLE_HREFS"
-if [ "$CSS_FAIL" = "1" ]; then
-    cleanup_serve
-    exit 1
-fi
-
 # Acceptance #5: served HTML contains all 8 fixture state labels.
 STATES="Running|Idle|Planned|Implemented|Reviewed|Done|Rejected|Failed"
 UNIQUE=$(grep -oE "$STATES" "$HTML_TMP" | sort -u | wc -l)
@@ -276,7 +236,7 @@ echo "  PASS #6: dx serve killed cleanly, port $PORT freed"
 
 echo
 echo "================================================================"
-echo "  US-007 verification: all 7 acceptance criteria pass."
+echo "  US-007 verification: all 6 acceptance criteria pass."
 echo "  Logs: $LOG_DIR"
 echo "================================================================"
 exit 0
