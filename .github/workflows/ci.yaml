@@ -35,7 +35,7 @@ jobs:
         with:
           repository: klampatech/alps
           path: sibling/alps
-          ref: dc69dce  # main tip (klampatech/alps#25 merged)
+          ref: refs/heads/main  # main tip (klampatech/alps#25 merged; refs/heads prefix required when not a tag)
 
       - name: Symlink sibling alps to ../alps
         run: ln -s "$GITHUB_WORKSPACE/sibling/alps" "$GITHUB_WORKSPACE/../alps"
@@ -90,7 +90,7 @@ jobs:
         with:
           repository: klampatech/alps
           path: sibling/alps
-          ref: dc69dce  # main tip (klampatech/alps#25 merged)
+          ref: refs/heads/main  # main tip (klampatech/alps#25 merged; refs/heads prefix required when not a tag)
 
       - name: Symlink sibling alps to ../alps
         run: ln -s "$GITHUB_WORKSPACE/sibling/alps" "$GITHUB_WORKSPACE/../alps"
