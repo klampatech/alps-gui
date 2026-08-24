@@ -8,7 +8,7 @@ rust-version = "1.83"
 license = "MIT"
 
 [workspace.dependencies]
-dioxus = { version = "0.7", features = ["fullstack"] }
+dioxus = { version = "0.7", features = ["fullstack", "router"] }
 alps-core = { path = "../alps/alps-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
