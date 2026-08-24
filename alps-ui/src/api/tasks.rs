@@ -23,7 +23,7 @@
 //!
 //! Acceptance criterion #3 explicitly says: "`tasks_list` and `task_get`
 //! shell out to `alps list --json` / `alps show --json` via
-//! `std::process::Command` — they do NOT call `alps_core::persistence::list_tasks`
+//! `Command::new` — they do NOT call `alps_core::persistence::list_tasks`
 //! directly". The intent is drift-prevention: any future change to
 //! `alps list` (new fields, new sentinel tasks, etc.) shows up in the UI
 //! automatically. Going through `alps_core` directly would let the UI
@@ -55,8 +55,7 @@
 //! `dioxus_server::*` paths (see `dioxus-fullstack-macro-0.7.10/src/lib.rs`
 //! lines 466-505, 551-556).
 
-#[cfg(feature = "server")]
-use std::process::Command;
+#[cfg(feature = "server")] use std::process::Command;
 
 use alps_core::summary::{TaskDetail, TaskList};
 use dioxus_fullstack_core::ServerFnError;

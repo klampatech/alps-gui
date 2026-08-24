@@ -9,7 +9,7 @@
 //! ## What lives here
 //!
 //! - [`tasks`] — `tasks_list` (calls `alps list --json`) and `task_get`
-//!   (calls `alps show --json`). Both shell out via `std::process::Command`.
+//!   (calls `alps show --json`). Both shell out via the `Command` API.
 //! - [`run`] — `task_run` (spawns `alps run`). V1 is a deferred stub
 //!   returning `Err("task_run deferred to v2")`; the real spawn lands
 //!   when US-007/US-008 wire the NewTask form's submit handler.

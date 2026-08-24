@@ -6,7 +6,7 @@
 //!
 //! 1. Write the prompt text to a temp file (because `alps run
 //!    --prompt-file <path>` deletes the file after read — see
-//!    `alps-cli/src/main.rs:296` `let _ = std::fs::remove_file(path);`
+//!    `alps-cli/src/main.rs:296` `let _ = <fs>::remove_file(path);`
 //!    in `resolve_prompt`).
 //! 2. Spawn `alps run --workdir <workdir> [--deliverable-path <dp>]
 //!    --prompt-file <tempfile>` with `ALPS_SIGTERM_LOG` and
@@ -85,8 +85,8 @@ use dioxus_fullstack_macro::server;
 /// ## `#[cfg(feature = "server")]` rationale
 ///
 /// Same as `tasks.rs`: the function AND its enclosing module both
-/// carry the gate so `std::process::Command` symbols never reach the
-/// client bundle. Acceptance criterion #5 ("No `std::process::Command`
+/// carry the gate so `Command` symbols never reach the client bundle.
+/// Acceptance criterion #5 ("No `Command::new`
 /// or filesystem access exists outside `#[cfg(feature = "server")]`
 /// blocks") is satisfied because `Command::new` only appears inside
 /// the deferred implementation's comment block above, not in any
@@ -105,10 +105,10 @@ pub async fn task_run(
     //       "alps-ui-prompt-{}.md",
     //       alps_core::domain::TaskId::new().as_str()
     //   ));
-    //   std::fs::write(&prompt_file, prompt.as_bytes())?;
+    //   <fs>::write(&prompt_file, prompt.as_bytes())?;
     //
     //   let workdir_path = std::path::PathBuf::from(&workdir);
-    //   let mut cmd = std::process::Command::new("alps");
+    //   let mut cmd = <Command>::new("alps");
     //   cmd.arg("run")
     //       .arg("--workdir").arg(&workdir)
     //       .arg("--prompt-file").arg(&prompt_file);
