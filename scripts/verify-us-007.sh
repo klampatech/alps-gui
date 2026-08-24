@@ -25,7 +25,7 @@
 # Usage:
 #   ./scripts/verify-us-007.sh [--port <PORT>]   # default: 5274
 #
-# Exit code 0 = all 6 acceptance criteria pass.
+# Exit code 0 = all 8 acceptance criteria pass.
 
 set -euo pipefail
 
@@ -116,6 +116,21 @@ assert_cmd "US-007 #2: cargo build --bin alps-ui --features fullstack" \
     cargo build --bin alps-ui --features fullstack
 
 # ─────────────────────────────────────────────────────────────────────
+# Acceptance #2b: cargo build --bin alps-ui --target wasm32-unknown-unknown
+#
+# M1's hydration path requires the wasm build to succeed. The
+# Cargo.toml gates reqwest/tokio/mio behind `not(wasm32)` so this
+# build is supposed to work; this acceptance criterion fails fast
+# if the gating regresses (e.g. someone adds an unconditional
+# `reqwest` dep and breaks browser hydration silently).
+# ─────────────────────────────────────────────────────────────────────
+
+assert_cmd "US-007 #2b: cargo build --bin alps-ui --target wasm32-unknown-unknown --features web" \
+    acceptance-2b-build-wasm \
+    pass \
+    cargo build --bin alps-ui --target wasm32-unknown-unknown --features web
+
+# ─────────────────────────────────────────────────────────────────────
 # Acceptance #3: cargo clippy (zero alps-ui warnings)
 # ─────────────────────────────────────────────────────────────────────
 
@@ -141,13 +156,15 @@ fi
 # ─────────────────────────────────────────────────────────────────────
 # Acceptance #4-6: dx serve + curl checks
 #
-# The default `dx serve --platform=web` builds the wasm32 client, which
-# fails to compile because alps-core declares `tokio = "full"` and the
-# `net` / `process` / `signal` features trip tokio 1.53+'s wasm
-# `compile_error!` (and mio's `net` trips its wasm-unsupported error).
 # `--platform=server --features=server` builds the native target and
 # uses `dioxus-liveview` (SSR), which renders the full Dashboard into
 # the served HTML so curl sees every fixture label.
+#
+# The wasm32-unknown-unknown build is exercised by acceptance #2b
+# above (compile-only). The wasm bundle inside the served HTML is
+# loaded by the browser but the `#[server]` macro dispatch requires
+# a live wasm runtime to verify end-to-end — that's covered by the
+# browser-driven function test in PR #2's body, not by this script.
 # ─────────────────────────────────────────────────────────────────────
 
 if [ -z "$(command -v dx 2>/dev/null)" ]; then
@@ -311,7 +328,7 @@ echo "  PASS #6: dx serve killed cleanly, port $PORT freed"
 
 echo
 echo "================================================================"
-echo "  US-007 verification: all 7 acceptance criteria pass."
+echo "  US-007 verification: all 8 acceptance criteria pass."
 echo "  Logs: $LOG_DIR"
 echo "================================================================"
 exit 0
