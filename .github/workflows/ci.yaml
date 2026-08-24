@@ -21,6 +21,8 @@ jobs:
 
       - name: Install Rust toolchain (stable)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Checkout sibling klampatech/alps (for alps-core path dep)
         # alps-gui's Cargo.toml declares `alps-core = { path = "../alps/alps-core" }`.
@@ -33,7 +35,7 @@ jobs:
         with:
           repository: klampatech/alps
           path: sibling/alps
-          ref: a5ab55639c4b75d3fac80b7c38dd8399c1fefa0c
+          ref: 0cb959d8ba6b6544c968e730d40c3e09b04a4874  # feat/alps-core-wasm-compat tip (PR #25)
 
       - name: Symlink sibling alps to ../alps
         run: ln -s "$GITHUB_WORKSPACE/sibling/alps" "$GITHUB_WORKSPACE/../alps"
@@ -63,6 +65,9 @@ jobs:
       - name: Build (server)
         run: cargo build --bin alps-ui --features server
 
+      - name: Build (wasm — M1 hydration guard)
+        run: cargo build --bin alps-ui --target wasm32-unknown-unknown --features web
+
       - name: Test
         run: cargo test --bin alps-ui --no-fail-fast
 
@@ -85,7 +90,7 @@ jobs:
         with:
           repository: klampatech/alps
           path: sibling/alps
-          ref: a5ab55639c4b75d3fac80b7c38dd8399c1fefa0c
+          ref: 0cb959d8ba6b6544c968e730d40c3e09b04a4874  # feat/alps-core-wasm-compat tip (PR #25)
 
       - name: Symlink sibling alps to ../alps
         run: ln -s "$GITHUB_WORKSPACE/sibling/alps" "$GITHUB_WORKSPACE/../alps"
