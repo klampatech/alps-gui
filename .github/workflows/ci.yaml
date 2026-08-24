@@ -33,7 +33,7 @@ jobs:
         with:
           repository: klampatech/alps
           path: sibling/alps
-          ref: a5ab556
+          ref: a5ab55639c4b75d3fac80b7c38dd8399c1fefa0c
 
       - name: Symlink sibling alps to ../alps
         run: ln -s "$GITHUB_WORKSPACE/sibling/alps" "$GITHUB_WORKSPACE/../alps"
@@ -85,7 +85,7 @@ jobs:
         with:
           repository: klampatech/alps
           path: sibling/alps
-          ref: a5ab556
+          ref: a5ab55639c4b75d3fac80b7c38dd8399c1fefa0c
 
       - name: Symlink sibling alps to ../alps
         run: ln -s "$GITHUB_WORKSPACE/sibling/alps" "$GITHUB_WORKSPACE/../alps"
