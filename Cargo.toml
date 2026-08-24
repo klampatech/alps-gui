@@ -19,3 +19,24 @@ reqwest = { version = "0.12", features = ["json", "stream"] }
 eventsource-stream = "0.2"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
+
+# Direct deps on the `dioxus-fullstack-*` + `dioxus-server` crates so
+# `src/api/{tasks,run}.rs` can `use dioxus_fullstack_macro::server;`
+# and `use dioxus_fullstack_core::ServerFnError;` regardless of whether
+# the `fullstack` feature is on. The `#[server]` proc-macro generates
+# code that references `dioxus_fullstack::*` AND `dioxus_server::*`
+# paths (see `dioxus-fullstack-macro-0.7.10/src/lib.rs` lines 466-505,
+# 551-556, 770-775) — both crates must be in scope. Rust doesn't expose
+# indirect deps for `use` statements, so we name all four crates
+# explicitly. Version-pinned to match `dioxus` (`0.7.10`) so resolution
+# is trivial.
+#
+# Default features left ON for `dioxus-fullstack` (gives `ws` transport)
+# and `dioxus-server` (gives `router` + `document` which `dioxus-server`'s
+# `ssr.rs` `use dioxus_router::ParseRouteError` line at
+# `dioxus-server-0.7.10/src/ssr.rs:16` requires). `dioxus-fullstack-macro`
+# and `dioxus-fullstack-core` have no features we care about.
+dioxus-fullstack-macro = { version = "0.7.10", default-features = false }
+dioxus-fullstack-core = { version = "0.7.10", default-features = false }
+dioxus-fullstack = "0.7.10"
+dioxus-server = "0.7.10"

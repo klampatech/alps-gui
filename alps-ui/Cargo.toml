@@ -23,6 +23,19 @@ eventsource-stream = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 
+# Direct deps on the `dioxus-fullstack-*` + `dioxus-server` crates so
+# `src/api/{tasks,run}.rs` can use the `#[server]` proc-macro and
+# `ServerFnError` type under either the `server` or `fullstack`
+# feature. The macro's generated code references both `dioxus_fullstack::*`
+# AND `dioxus_server::*` paths; Rust doesn't expose indirect deps for
+# `use` statements, so we name them explicitly. The proc-macro itself
+# is zero-cost type-level annotation; the runtime deps contribute only
+# when the relevant feature is enabled.
+dioxus-fullstack-macro = { workspace = true }
+dioxus-fullstack-core = { workspace = true }
+dioxus-fullstack = { workspace = true }
+dioxus-server = { workspace = true }
+
 [dev-dependencies]
 dioxus-ssr = "0.7"
 
