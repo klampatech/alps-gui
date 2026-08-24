@@ -35,7 +35,7 @@ jobs:
         with:
           repository: klampatech/alps
           path: sibling/alps
-          ref: 0cb959d8ba6b6544c968e730d40c3e09b04a4874  # feat/alps-core-wasm-compat tip (PR #25)
+          ref: dc69dce  # main tip (klampatech/alps#25 merged)
 
       - name: Symlink sibling alps to ../alps
         run: ln -s "$GITHUB_WORKSPACE/sibling/alps" "$GITHUB_WORKSPACE/../alps"
@@ -90,7 +90,7 @@ jobs:
         with:
           repository: klampatech/alps
           path: sibling/alps
-          ref: 0cb959d8ba6b6544c968e730d40c3e09b04a4874  # feat/alps-core-wasm-compat tip (PR #25)
+          ref: dc69dce  # main tip (klampatech/alps#25 merged)
 
       - name: Symlink sibling alps to ../alps
         run: ln -s "$GITHUB_WORKSPACE/sibling/alps" "$GITHUB_WORKSPACE/../alps"
