@@ -18,19 +18,24 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 gloo-storage = { workspace = true }
+tracing = { workspace = true }
+
+# Native-only deps. `dioxus-fullstack` unconditionally depends on
+# `reqwest` → `tokio` → `mio`, none of which compile to
+# `wasm32-unknown-unknown` (mio's syscalls are unix-only). On wasm,
+# alps-ui uses `dioxus/web` alone (web-sys fetch under the hood) for
+# server-fn POSTs. The wasm build therefore doesn't pull in the
+# fullstack/server crates directly — but it still gets the
+# `dioxus-fullstack?/web` optional activation via the dioxus `web`
+# feature, which wires up server-fn POSTs to web-sys fetch.
+#
+# `reqwest` + `eventsource-stream` are also listed here (they're
+# future-use — M3's TaskLog SSE page will use eventsource-stream).
+# Keeping them out of wasm means the wasm build stays lean.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 reqwest = { workspace = true }
 eventsource-stream = { workspace = true }
 tokio = { workspace = true }
-tracing = { workspace = true }
-
-# Direct deps on the `dioxus-fullstack-*` + `dioxus-server` crates so
-# `src/api/{tasks,run}.rs` can use the `#[server]` proc-macro and
-# `ServerFnError` type under either the `server` or `fullstack`
-# feature. The macro's generated code references both `dioxus_fullstack::*`
-# AND `dioxus_server::*` paths; Rust doesn't expose indirect deps for
-# `use` statements, so we name them explicitly. The proc-macro itself
-# is zero-cost type-level annotation; the runtime deps contribute only
-# when the relevant feature is enabled.
 dioxus-fullstack-macro = { workspace = true }
 dioxus-fullstack-core = { workspace = true }
 dioxus-fullstack = { workspace = true }
@@ -38,6 +43,19 @@ dioxus-server = { workspace = true }
 
 [dev-dependencies]
 dioxus-ssr = "0.7"
+
+# Wasm-only deps for the client-side server-fn dispatch shim
+# (see `src/api/mod.rs`'s stub `tasks_list` — it uses web-sys fetch
+# to POST to the registered `/api/<name>` endpoint, since the
+# `dioxus-fullstack` HTTP dispatch brings in reqwest → tokio → mio
+# which doesn't compile to wasm32-unknown-unknown).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+serde-wasm-bindgen = "0.6"
+web-sys = { version = "0.3", features = ["Window", "Request", "RequestInit", "RequestMode", "Response", "Headers"] }
+xxhash-rust = { version = "=0.8.15", features = ["const_xxh64"] }
 
 [features]
 default = ["web"]
