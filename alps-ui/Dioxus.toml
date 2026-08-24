@@ -1,0 +1,14 @@
+[application]
+name = "alps-ui"
+default_platform = "web"
+
+[web.app]
+title = "ALPS UI"
+base_path = ""
+
+[web.bundle]
+# `dx serve` regenerates this directory on every dev run. We commit
+# nothing under `public/`; the scaffold just declares the directory
+# so the asset pipeline has a known target.
+dir = "public"
+dev_url = "http://127.0.0.1:5174"

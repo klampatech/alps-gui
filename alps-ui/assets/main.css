@@ -1,0 +1,8 @@
+/* main.css — empty placeholder for v1.
+ *
+ * Tailwind utilities are applied directly in `rsx!` markup via the
+ * `class:` attribute. `dx serve` (when present) watches this file
+ * and runs the Tailwind CLI to regenerate `tailwind.css`. For the
+ * first-cut scaffold (US-001) we ship an empty file so the asset
+ * pipeline resolves cleanly even before any Tailwind build runs.
+ */

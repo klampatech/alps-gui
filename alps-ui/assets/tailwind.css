@@ -1,0 +1,11 @@
+/* tailwind.css — Tailwind source.
+ *
+ * This file is the source-of-truth that `dx serve`'s Tailwind CLI
+ * scans. The CLI replaces its content with the compiled utility
+ * classes referenced from the `rsx!` markup. For the scaffold we
+ * ship the standard Tailwind v3 directives — `dx` populates the
+ * rest on first run.
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
