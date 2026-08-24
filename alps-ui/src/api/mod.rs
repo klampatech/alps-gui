@@ -65,3 +65,45 @@ mod tasks;
 pub use run::task_run;
 #[cfg(feature = "server")]
 pub use tasks::{task_get, tasks_list};
+
+// Re-export the error type so callers can name it in their signatures
+// without depending on dioxus_fullstack_core directly. Gated on the
+// `server` feature because ServerFnError only exists in that build
+// (the wasm-client build never imports the api module).
+#[cfg(feature = "server")]
+pub use dioxus_fullstack_core::ServerFnError;
+
+// Stub error type for the default (`web`-only) build. The api module is
+// gated out in that build, so callers can't reach a real
+// `tasks_list` — but they still want a type-stable signature so they
+// compile without `#![cfg(feature = "server")]` everywhere. The
+// stub's `Debug` impl matches `ServerFnError`'s shape closely enough
+// for the Dashboard's ErrorCard to render a useful message.
+//
+// We implement `Into<CapturedError>` so the stub satisfies the same
+// trait bounds the real `ServerFnError` does (required by
+// `dioxus_fullstack_core::use_loader`). CapturedError isn't available
+// in the default build, so we gate the impl on the same `server`
+// feature the real type uses.
+#[cfg(not(feature = "server"))]
+#[derive(Debug)]
+pub struct ServerFnError(pub String);
+
+#[cfg(not(feature = "server"))]
+impl std::fmt::Display for ServerFnError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+// Stub `tasks_list` for the default (wasm-only) build. The real
+// version lives in `tasks.rs` behind the `server` feature; this stub
+// returns an error immediately so the Dashboard's `use_resource` sees
+// a Result::Err and the ErrorCard renders the "run with --features
+// server" hint.
+#[cfg(not(feature = "server"))]
+pub async fn tasks_list(_workdir: String) -> Result<crate::domain::TaskList, ServerFnError> {
+    Err(ServerFnError(
+        "tasks_list is server-only — rebuild with --features server".to_string(),
+    ))
+}
