@@ -33,7 +33,14 @@ set -euo pipefail
 LABEL="${ALPS_GUI_SMOKE_LABEL:-alps-gui-smoke-A}"
 WORKDIR_PARENT="${ALPS_GUI_SMOKE_WORKDIR_PARENT:-$HOME/Development/alps-runs}"
 DELIVERABLE_PATH="${ALPS_GUI_SMOKE_DELIVERABLE_PATH:-$HOME/Development/alps-gui}"
-PROMPT_FILE="${ALPS_GUI_SMOKE_PROMPT_FILE:-$HOME/Development/alps-gui/scripts/prompts/smoke-A.txt}"
+# The prompt file MUST live OUTSIDE the deliverable path. The LLM
+# running inside the smoke has workspace-write access to the
+# deliverable path, so an in-repo copy at scripts/prompts/smoke-A.txt
+# is at risk of being deleted by the LLM as part of its scaffolding
+# work (verified 2026-08-23: codex deleted it during the smoke).
+# The out-of-band copy at ~/.local/share/alps/smoke-prompts/smoke-A.txt
+# is the canonical one. The in-repo copy is fallback only.
+PROMPT_FILE="${ALPS_GUI_SMOKE_PROMPT_FILE:-$HOME/.local/share/alps/smoke-prompts/smoke-A.txt}"
 LOG_PREFIX="${ALPS_GUI_SMOKE_LOG_PREFIX:-/tmp/alps-gui-smoke-A}"
 
 while [[ $# -gt 0 ]]; do
@@ -60,6 +67,17 @@ STDERR_LOG="${LOG_PREFIX}-stderr.log"
 TELEMETRY_LOG="${LOG_PREFIX}-telemetry.log"
 SIGTERM_LOG="${LOG_PREFIX}-sigterm.log"
 ALPS_BIN="$HOME/Development/alps/target/release/alps"
+
+# Codex config quirk: ~/.codex/config.toml declares
+#   env_key = "MINIMAX_API_KEY_UNUSED"
+# as a "dummy placeholder that codex requires to be non-empty."
+# Codex's runtime validates the env var *exists* before sending
+# a request, even though the local key-proxy at :8789 injects the
+# real key from its own EnvironmentFile. Without this, every codex
+# invocation fails with:
+#   ERROR: Missing environment variable: MINIMAX_API_KEY_UNUSED.
+# The value doesn't matter — any non-empty string works.
+export MINIMAX_API_KEY_UNUSED="${MINIMAX_API_KEY_UNUSED:-placeholder-for-codex-config-validation}"
 
 # ─────────────────────────────────────────────────────────────────────
 # Pre-flight
@@ -124,6 +142,7 @@ fi
 
 if [ ! -f "$PROMPT_FILE" ]; then
     echo "error: prompt file not found at $PROMPT_FILE" >&2
+    echo "  → restore from in-repo copy: cp $HOME/Development/alps-gui/scripts/prompts/smoke-A.txt $PROMPT_FILE" >&2
     exit 2
 fi
 
@@ -132,6 +151,8 @@ if [ ! -d "$DELIVERABLE_PATH" ]; then
     echo "  → did you forget to git init + commit the SPEC.md / DESIGN.md?" >&2
     exit 2
 fi
+
+mkdir -p "$WORKDIR"
 : > "$STDERR_LOG"
 : > "$TELEMETRY_LOG"
 : > "$SIGTERM_LOG"
