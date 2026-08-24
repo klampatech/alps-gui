@@ -16,6 +16,8 @@
 //!   now only `NavBar` (the responsive top-bar + hamburger + Outlet).
 //! - `pages` — one placeholder component per `Route` variant. US-005 fills
 //!   in `Dashboard`; US-006+ fills in the rest as server functions land.
+//! - `fixtures` — the hardcoded `TaskSummary` fixture list rendered by the
+//!   Dashboard (US-005). Eight rows, one per normal `TaskState` variant.
 //! - `components` — the named presentation fragments from DESIGN.md §4:
 //!   `StatusPill`, `StoryCard`, `FindingCard`, `AssertionCard`,
 //!   `ReceiptCard`, `ResponsiveGrid`. US-005 wires them into the
@@ -35,6 +37,7 @@ use dioxus::router::components::Router;
 
 mod components;
 mod domain;
+mod fixtures;
 mod layouts;
 mod pages;
 mod routes;

@@ -23,6 +23,9 @@ eventsource-stream = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 
+[dev-dependencies]
+dioxus-ssr = "0.7"
+
 [features]
 default = ["web"]
 web = ["dioxus/web"]

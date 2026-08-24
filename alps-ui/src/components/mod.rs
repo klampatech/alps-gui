@@ -9,32 +9,29 @@
 //! ## What this file exports
 //!
 //! - `StatusPill` — color-coded badge for one of 9 `TaskState` variants.
+//!   **Consumed by US-005's Dashboard.**
 //! - `StoryCard` — one `UserStory` row in the TaskDetail Plan tab.
+//!   Lands in US-006+ (TaskDetail render).
 //! - `FindingCard` — one entry in a Review's findings list (severity pill).
+//!   Lands in US-006+ (TaskDetail Review tab).
 //! - `AssertionCard` — one entry in a Review's assertions list.
+//!   Lands in US-006+ (TaskDetail Review tab).
 //! - `ReceiptCard` — the final `Receipts` summary for a Done task.
-//! - `ResponsiveGrid` — 1-col-default, 3-col-on-`lg:` wrapper for the
-//!   Dashboard's three sections (task list, new-task form, recent log).
+//!   Lands in US-006+ (TaskDetail Receipts tab).
+//! - `ResponsiveGrid` — 1-col-default, 3-col-on-`lg:` wrapper.
+//!   **Consumed by US-005's Dashboard.**
 //!
-//! ## When this file grows
+//! ## `#[allow(unused_imports)]` for the unconsumed re-exports
 //!
-//! - US-005 will use `StatusPill` + `ResponsiveGrid` + (later) `StoryCard`
-//!   to render the Dashboard fixture list and TaskDetail plan list.
-//! - US-006 will hand these components real server-function data (via
-//!   `use_resource`), but the components themselves stay presentation-only
-//!   — they take typed props and emit `rsx!{}`.
-//!
-//! ## `#[allow(dead_code)]` and `#[allow(unused_imports)]`
-//!
-//! US-004 lands BEFORE its only consumer (US-005's dashboard). Rust's
-//! `dead_code` lint flags exported `pub fn` items in a binary crate as
-//! unused when no caller imports them yet, and `unused_imports` flags
-//! every `pub use` line that nothing downstream currently names. The
-//! module-level allows drop in US-005 when the Dashboard's `rsx!{}`
-//! references each component. Same pattern as `domain.rs`'s
-//! `#[allow(unused_imports)]` — keep one module-level annotation,
-//! then strip it when the consumer lands.
-#![allow(dead_code, unused_imports)]
+//! US-005 lands `ResponsiveGrid` + `StatusPill` into the Dashboard.
+//! The other four components (`StoryCard`, `FindingCard`,
+//! `AssertionCard`, `ReceiptCard`) are still unused until US-006+ wires
+//! them into TaskDetail / TaskLog / TaskDiff. To suppress the
+//! `unused_imports` lint on those four re-exports without keeping the
+//! dead-code/unused-imports allow on the whole module, each unconsumed
+//! re-export carries an inline `#[allow(unused_imports)]`. Strip those
+//! once US-006+ adds the consumer.
+#![allow(unused_imports)]
 
 mod responsive_grid;
 
@@ -44,9 +41,13 @@ mod receipt_card;
 mod status_pill;
 mod story_card;
 
+#[allow(unused_imports)]
 pub use assertion_card::AssertionCard;
+#[allow(unused_imports)]
 pub use finding_card::FindingCard;
+#[allow(unused_imports)]
 pub use receipt_card::ReceiptCard;
 pub use responsive_grid::ResponsiveGrid;
 pub use status_pill::StatusPill;
+#[allow(unused_imports)]
 pub use story_card::StoryCard;
