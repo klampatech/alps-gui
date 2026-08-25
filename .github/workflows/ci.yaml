@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-test:
+    name: build + test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Checkout sibling klampatech/alps (for alps-core path dep)
+        # alps-gui's Cargo.toml declares `alps-core = { path = "../alps/alps-core" }`.
+        # cargo resolves that relative to the alps-gui workspace root, so the
+        # path lands at `$GITHUB_WORKSPACE/../alps/alps-core`. `actions/checkout@v4`
+        # refuses paths outside $GITHUB_WORKSPACE, so we check out into a
+        # subdirectory and symlink it up one level.
+        # Pin the SHA in sync with alps-core API changes — bump when needed.
+        uses: actions/checkout@v4
+        with:
+          repository: klampatech/alps
+          path: sibling/alps
+          ref: refs/heads/main  # main tip (klampatech/alps#25 merged; refs/heads prefix required when not a tag)
+
+      - name: Symlink sibling alps to ../alps
+        run: ln -s "$GITHUB_WORKSPACE/sibling/alps" "$GITHUB_WORKSPACE/../alps"
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            alps-ui -> target
+            sibling/alps/alps-core -> sibling/alps/target
+            sibling/alps/alps-cli -> sibling/alps/target
+
+      - name: Cache cargo registry index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock', 'sibling/alps/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Build (default = web)
+        run: cargo build --bin alps-ui
+
+      - name: Build (fullstack)
+        run: cargo build --bin alps-ui --features fullstack
+
+      - name: Build (server)
+        run: cargo build --bin alps-ui --features server
+
+      - name: Build (wasm — M1 hydration guard)
+        run: cargo build --bin alps-ui --target wasm32-unknown-unknown --features web
+
+      - name: Test
+        run: cargo test --bin alps-ui --no-fail-fast
+
+      - name: Clippy (alps-ui only, deps out of scope per smoke #1)
+        run: cargo clippy --bin alps-ui --no-deps -- -D warnings
+
+  verify-us-007:
+    name: verify-us-007.sh (UI smoke gate)
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Checkout sibling klampatech/alps (for alps-core path dep)
+        uses: actions/checkout@v4
+        with:
+          repository: klampatech/alps
+          path: sibling/alps
+          ref: refs/heads/main  # main tip (klampatech/alps#25 merged; refs/heads prefix required when not a tag)
+
+      - name: Symlink sibling alps to ../alps
+        run: ln -s "$GITHUB_WORKSPACE/sibling/alps" "$GITHUB_WORKSPACE/../alps"
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            alps-ui -> target
+            sibling/alps/alps-core -> sibling/alps/target
+            sibling/alps/alps-cli -> sibling/alps/target
+
+      - name: Cache cargo registry index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock', 'sibling/alps/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Install dioxus-cli (required by verify-us-007.sh, US-007 #7)
+        run: cargo install dioxus-cli --locked --version 0.7.10
+
+      - name: Run verify-us-007.sh
+        run: bash scripts/verify-us-007.sh --port 5274
