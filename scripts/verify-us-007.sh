@@ -25,7 +25,7 @@
 # Usage:
 #   ./scripts/verify-us-007.sh [--port <PORT>]   # default: 5274
 #
-# Exit code 0 = all 8 acceptance criteria pass.
+# Exit code 0 = all 9 acceptance criteria pass.
 
 set -euo pipefail
 
@@ -313,6 +313,33 @@ if [ "$MISSING" = "1" ]; then
 fi
 echo "  PASS #5: served HTML contains all 3 M1 Dashboard markers"
 
+# ─────────────────────────────────────────────────────────────────────
+# Acceptance #5b: served HTML advertises M2's task_run form surface.
+#
+# M2 wires the NewTask form's submit handler to the task_run server
+# function. The SSR'd HTML should contain the form, the textarea,
+# and the M2-specific copy that tells the operator the button now
+# actually spawns alps run.
+# ─────────────────────────────────────────────────────────────────────
+
+REQUIRED_M2_MARKERS=("Submit" "server-side")
+MISSING_M2=0
+for marker in "${REQUIRED_M2_MARKERS[@]}"; do
+    if ! grep -qF "$marker" "$HTML_TMP"; then
+        echo "  FAIL #5b: served HTML missing M2 marker '$marker'"
+        MISSING_M2=1
+    fi
+done
+if [ "$MISSING_M2" = "1" ]; then
+    echo "    M2 NewTask form should render the Submit button and the"
+    echo "    updated copy that advertises task_run dispatch."
+    echo "    HTML was:"
+    head -80 "$HTML_TMP" | sed 's/^/      /'
+    cleanup_serve
+    exit 1
+fi
+echo "  PASS #5b: served HTML advertises M2 task_run form surface"
+
 # Acceptance #6: dx serve background process is killed cleanly at end.
 cleanup_serve
 sleep 2
@@ -328,7 +355,7 @@ echo "  PASS #6: dx serve killed cleanly, port $PORT freed"
 
 echo
 echo "================================================================"
-echo "  US-007 verification: all 8 acceptance criteria pass."
+echo "  US-007 verification: all 9 acceptance criteria pass."
 echo "  Logs: $LOG_DIR"
 echo "================================================================"
 exit 0

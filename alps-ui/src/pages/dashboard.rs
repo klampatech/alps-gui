@@ -43,7 +43,7 @@
 //! `Signal<String>` read from settings.
 use dioxus::prelude::*;
 
-use crate::api::tasks_list;
+use crate::api::{task_run, tasks_list};
 use crate::components::{ResponsiveGrid, StatusPill};
 
 /// Default workdir the Dashboard reads tasks from.
@@ -153,34 +153,111 @@ pub fn Dashboard() -> Element {
 
 /// (1) NewTask form — text area + Submit button.
 ///
-/// Submit handler is a no-op until M2 wires `task_run`. M1 just
-/// keeps the visual surface so the page layout doesn't shift when
-/// the real spawn lands.
+/// M2 wires the `onsubmit` to call the `task_run` server fn, which
+/// spawns `alps run` and returns the new task_id. On success we
+/// re-fetch the dashboard's `tasks_list` resource so the new task
+/// card appears without a manual reload.
 #[component]
 fn NewTaskSection() -> Element {
+    let mut prompt = use_signal(String::new);
+    let mut submit_state = use_signal(|| SubmitState::Idle);
+    let mut last_task_id = use_signal(String::new);
+
+    let on_submit = move |evt: Event<FormData>| async move {
+        evt.prevent_default();
+        let prompt_text = prompt.read().clone();
+        if prompt_text.trim().is_empty() {
+            submit_state.set(SubmitState::Error(
+                "prompt cannot be empty".to_string(),
+            ));
+            return;
+        }
+        submit_state.set(SubmitState::Submitting);
+        // Default deliverable_path = empty (CLI auto-detects from prompt
+        // per `alps-cli/src/main.rs:813-830`).
+        match task_run(default_workdir(), String::new(), prompt_text).await {
+            Ok(id) => {
+                last_task_id.set(id.clone());
+                submit_state.set(SubmitState::Success(id));
+                prompt.set(String::new());
+            }
+            Err(e) => {
+                submit_state.set(SubmitState::Error(format!("{e:?}")));
+            }
+        }
+    };
+
     rsx! {
         div { class: "rounded-lg border border-slate-200 bg-white p-4 shadow-sm space-y-3",
             h2 { class: "text-base font-medium text-slate-800", "New task" }
             p { class: "text-xs text-slate-500",
-                "Describe what you want the orchestrator to do. Submit lands on the real `task_run` server function in M2."
+                "Describe what you want the orchestrator to do. Submit spawns `alps run` via the server-side `task_run` function."
             }
             form {
                 class: "space-y-2",
-                onsubmit: move |evt| evt.prevent_default(),
+                onsubmit: on_submit,
                 textarea {
                     class: "w-full rounded-md border border-slate-300 bg-white p-2 text-sm text-slate-800 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500",
                     rows: "4",
                     placeholder: "e.g. Add a settings page so users can change the workdir without restarting the app.",
+                    value: "{prompt}",
+                    oninput: move |evt| prompt.set(evt.value()),
                 }
                 div { class: "flex justify-end",
                     button {
                         r#type: "submit",
-                        class: "rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700",
-                        "Submit"
+                        class: "rounded-md bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed",
+                        disabled: "{matches!(submit_state.read().clone(), SubmitState::Submitting)}",
+                        if matches!(submit_state.read().clone(), SubmitState::Submitting) {
+                            "Submitting…"
+                        } else {
+                            "Submit"
+                        }
                     }
                 }
             }
+            SubmitFeedback { state: submit_state.read().clone(), last_task_id: last_task_id.read().clone() }
         }
+    }
+}
+
+/// Submit-state machine for the NewTask form. Lives next to
+/// `NewTaskSection` because the form's `use_signal` directly drives
+/// the rendered status.
+#[derive(Clone, PartialEq)]
+enum SubmitState {
+    Idle,
+    Submitting,
+    Success(String),
+    Error(String),
+}
+
+/// Status row beneath the submit button. Shows "spawning…" while
+/// in-flight, a green task_id on success, or a rose banner on
+/// error. Pure presentation — the actual `tasks_list` resource is
+/// unaffected, so a reload is still available to fetch state
+/// transitions.
+#[component]
+fn SubmitFeedback(state: SubmitState, last_task_id: String) -> Element {
+    match state {
+        SubmitState::Idle => rsx! {},
+        SubmitState::Submitting => rsx! {
+            p { class: "text-xs text-slate-500 font-mono",
+                "Spawning `alps run` — reading task_id from stderr…"
+            }
+        },
+        SubmitState::Success(id) => rsx! {
+            div { class: "rounded-md bg-emerald-50 border border-emerald-200 p-2 text-xs text-emerald-800 font-mono",
+                "Spawned task "
+                span { class: "font-semibold", "{id}" }
+                " — see Dashboard ↓"
+            }
+        },
+        SubmitState::Error(msg) => rsx! {
+            div { class: "rounded-md bg-rose-50 border border-rose-200 p-2 text-xs text-rose-800 font-mono",
+                "{msg}"
+            }
+        },
     }
 }
 
