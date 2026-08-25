@@ -116,29 +116,36 @@ impl std::fmt::Display for ServerFnError {
 // hash matches the server hash exactly. If `tasks_list` ever moves
 // to a different module, this string must move too.
 #[cfg(all(target_arch = "wasm32", not(feature = "server")))]
-pub async fn tasks_list(workdir: String) -> Result<crate::domain::TaskList, ServerFnError> {
+async fn wasm_post_json<T: serde::Serialize, R: serde::de::DeserializeOwned>(
+    module: &str,
+    fn_name: &str,
+    args: &T,
+) -> Result<R, ServerFnError> {
     use serde::Serialize;
     use wasm_bindgen::JsCast;
     use wasm_bindgen::JsValue;
     use wasm_bindgen_futures::JsFuture;
 
-    #[derive(Serialize)]
-    struct Args {
-        workdir: String,
-    }
-
-    let args = Args { workdir };
-    let body = serde_json::to_string(&args)
+    let body = serde_json::to_string(args)
         .map_err(|e| ServerFnError(format!("serialize args: {e}")))?;
 
     let opts = web_sys::RequestInit::new();
     opts.set_method("POST");
     opts.set_body(&JsValue::from_str(&body));
 
+    // The endpoint path is hashed by the `#[server]` macro from
+    // `CARGO_MANIFEST_DIR:module_path!()` using xxh64. The macro
+    // computes `module_path!()` from inside the file holding the
+    // `#[server]`-decorated function (so its value is
+    // `alps_ui::api::<module>` where <module> is `tasks`, `run`,
+    // etc.). The wasm stubs live in `api/mod.rs`, so their local
+    // `module_path!()` would be `alps_ui::api` — wrong. Hardcode
+    // the macro's `module_path!()` value here so the wasm hash
+    // matches the server hash exactly.
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let hash_input = format!("{manifest_dir}:alps_ui::api::tasks");
+    let hash_input = format!("{manifest_dir}:alps_ui::api::{module}");
     let hash = xxhash_rust::const_xxh64::xxh64(hash_input.as_bytes(), 0);
-    let url = format!("/api/tasks_list{hash}");
+    let url = format!("/api/{fn_name}{hash}");
     web_sys::console::log_1(&JsValue::from_str(&format!("[alps-ui] POST {url}")));
 
     let request = web_sys::Request::new_with_str_and_init(&url, &opts)
@@ -170,7 +177,31 @@ pub async fn tasks_list(workdir: String) -> Result<crate::domain::TaskList, Serv
         .ok_or_else(|| ServerFnError("response not a string".to_string()))?;
 
     serde_json::from_str(&text)
-        .map_err(|e| ServerFnError(format!("parse TaskList: {e}; body={text}")))
+        .map_err(|e| ServerFnError(format!("parse response: {e}; body={text}")))
+}
+
+#[cfg(all(target_arch = "wasm32", not(feature = "server")))]
+pub async fn tasks_list(workdir: String) -> Result<crate::domain::TaskList, ServerFnError> {
+    #[derive(serde::Serialize)]
+    struct Args {
+        workdir: String,
+    }
+    wasm_post_json("tasks", "tasks_list", &Args { workdir }).await
+}
+
+#[cfg(all(target_arch = "wasm32", not(feature = "server")))]
+pub async fn task_run(
+    workdir: String,
+    deliverable_path: String,
+    prompt: String,
+) -> Result<String, ServerFnError> {
+    #[derive(serde::Serialize)]
+    struct Args {
+        workdir: String,
+        deliverable_path: String,
+        prompt: String,
+    }
+    wasm_post_json("run", "task_run", &Args { workdir, deliverable_path, prompt }).await
 }
 
 // Native non-server stub — exists so default builds (no `server` feature,
@@ -182,5 +213,16 @@ pub async fn tasks_list(workdir: String) -> Result<crate::domain::TaskList, Serv
 pub async fn tasks_list(_workdir: String) -> Result<crate::domain::TaskList, ServerFnError> {
     Err(ServerFnError(
         "tasks_list requires `--features server` or a wasm build (default `web` feature)".to_string(),
+    ))
+}
+
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "server")))]
+pub async fn task_run(
+    _workdir: String,
+    _deliverable_path: String,
+    _prompt: String,
+) -> Result<String, ServerFnError> {
+    Err(ServerFnError(
+        "task_run requires `--features server` or a wasm build (default `web` feature)".to_string(),
     ))
 }
