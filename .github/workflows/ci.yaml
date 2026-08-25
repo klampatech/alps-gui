@@ -84,6 +84,8 @@ jobs:
 
       - name: Install Rust toolchain (stable)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Checkout sibling klampatech/alps (for alps-core path dep)
         uses: actions/checkout@v4
