@@ -204,6 +204,22 @@ pub async fn task_run(
     wasm_post_json("run", "task_run", &Args { workdir, deliverable_path, prompt }).await
 }
 
+// Wasm-side stub for `task_get` — the canonical 2-arg body shape
+// `{workdir, task_id}` matches the `#[server]` macro's
+// `___Body_Serialize__<T0, T1>` generation per M3a pitfalls note.
+// The server fn lives in `tasks.rs`; the macro's `module_path!()` is
+// therefore `alps_ui::api::tasks`, which is what we pass as the
+// helper's `module` argument.
+#[cfg(all(target_arch = "wasm32", not(feature = "server")))]
+pub async fn task_get(workdir: String, task_id: String) -> Result<Option<crate::domain::TaskDetail>, ServerFnError> {
+    #[derive(serde::Serialize)]
+    struct Args {
+        workdir: String,
+        task_id: String,
+    }
+    wasm_post_json("tasks", "task_get", &Args { workdir, task_id }).await
+}
+
 // Native non-server stub — exists so default builds (no `server` feature,
 // no `wasm32` target) can compile. The default build was originally
 // wasm-only, but the CI matrix also tests `cargo build --bin alps-ui`
@@ -224,5 +240,18 @@ pub async fn task_run(
 ) -> Result<String, ServerFnError> {
     Err(ServerFnError(
         "task_run requires `--features server` or a wasm build (default `web` feature)".to_string(),
+    ))
+}
+
+// Native non-server stub for `task_get` — same pattern as the other two.
+// Exists so default builds (no `server` feature, no `wasm32` target) can
+// compile. Used by the TaskDetail page's non-server-gated placeholder.
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "server")))]
+pub async fn task_get(
+    _workdir: String,
+    _task_id: String,
+) -> Result<Option<crate::domain::TaskDetail>, ServerFnError> {
+    Err(ServerFnError(
+        "task_get requires `--features server` or a wasm build (default `web` feature)".to_string(),
     ))
 }

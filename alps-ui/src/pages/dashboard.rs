@@ -45,6 +45,8 @@ use dioxus::prelude::*;
 
 use crate::api::{task_run, tasks_list};
 use crate::components::{ResponsiveGrid, StatusPill};
+use crate::domain::TaskId;
+use crate::routes::Route;
 
 /// Default workdir the Dashboard reads tasks from.
 ///
@@ -331,10 +333,23 @@ fn TaskCard(task: crate::domain::TaskSummary) -> Element {
     let attempts_display = format!("attempt {}", task.attempts + 1);
     let created_display = format_created_at(task.created_at);
 
+    // The Dashboard's TaskCard is a `<Link>` to the per-task page
+    // (M3a). Clicking navigates to `/tasks/<task_id>` which renders
+    // `pages::TaskDetail`. The `Link` component accepts any child
+    // (including a styled `<div>`) and renders an `<a href>` for
+    // SSR / static export. `task.task_id` is a `String`; wrap it in
+    // the UI-side `TaskId` newtype so the `Route::TaskDetail { id }`
+    // variant accepts it directly (per `routes.rs`'s `Routable`
+    // derive's typed-segment requirement).
+    let link_target = Route::TaskDetail {
+        id: TaskId::new(task.task_id.clone()),
+    };
+
     rsx! {
-        div {
+        Link {
+            to: link_target,
             key: "{task.task_id}",
-            class: "rounded-lg border border-slate-200 bg-white p-4 shadow-sm space-y-2",
+            class: "block rounded-lg border border-slate-200 bg-white p-4 shadow-sm space-y-2 hover:border-slate-300 hover:shadow",
             div { class: "flex items-center justify-between gap-2",
                 StatusPill { state: task.state }
                 span { class: "font-mono text-xs text-slate-500", "{task.task_id}" }
