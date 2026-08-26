@@ -60,12 +60,22 @@
 #![cfg_attr(feature = "server", allow(unused_imports))]
 
 #[cfg(feature = "server")]
-mod log;
+pub mod cancel;
 #[cfg(feature = "server")]
-mod run;
+pub mod diff;
 #[cfg(feature = "server")]
-mod tasks;
+pub mod log;
+#[cfg(feature = "server")]
+pub mod process_registry;
+#[cfg(feature = "server")]
+pub mod run;
+#[cfg(feature = "server")]
+pub mod tasks;
 
+#[cfg(feature = "server")]
+pub use cancel::task_cancel;
+#[cfg(feature = "server")]
+pub use diff::{task_diff, CommitDiff};
 #[cfg(feature = "server")]
 pub use log::{task_log_tail_ralph, task_log_tail_telemetry, LogLine};
 #[cfg(feature = "server")]
@@ -272,6 +282,44 @@ pub async fn task_log_tail_ralph(
     .await
 }
 
+// Wasm stub for `task_cancel` (M3c, story 3c.3). Same wasm_post_json
+// pattern as the other server fns. The real implementation lives in
+// `api/cancel.rs` (gated on `feature = "server"`).
+#[cfg(all(target_arch = "wasm32", not(feature = "server")))]
+pub async fn task_cancel(
+    workdir: String,
+    task_id: String,
+) -> Result<(), ServerFnError> {
+    #[derive(serde::Serialize)]
+    struct Args {
+        workdir: String,
+        task_id: String,
+    }
+    wasm_post_json("cancel", "task_cancel", &Args { workdir, task_id }).await
+}
+
+// Wasm stub for `task_diff` (M3c, story 3c.1). Same wasm_post_json
+// pattern. Uses the local `CommitDiff` stub (also
+// `cfg(not(feature = "server"))`) so this type-checks in the wasm
+// build where the real `api::diff` module is gated out.
+#[cfg(all(target_arch = "wasm32", not(feature = "server")))]
+pub async fn task_diff(
+    workdir: String,
+    task_id: String,
+) -> Result<Vec<CommitDiff>, ServerFnError> {
+    #[derive(serde::Serialize)]
+    struct Args {
+        workdir: String,
+        task_id: String,
+    }
+    wasm_post_json(
+        "diff",
+        "task_diff",
+        &Args { workdir, task_id },
+    )
+    .await
+}
+
 // Stub `LogLine` type for the default (`web`-only) build, mirroring
 // the `ServerFnError` stub above. The `api::log` module is gated out
 // in this build, so the wasm/native stubs above can't reach the real
@@ -304,6 +352,27 @@ impl LogLine {
     pub fn new(line_no: u64, text: String) -> Self {
         Self { line_no, text }
     }
+}
+
+// Stub `CommitDiff` for the default (`web`-only) build, mirroring the
+// `LogLine` stub above. Same pitfall — M3b's LogLine stub was missing
+// `::new()` (Pitfall 32). For `CommitDiff` we don't have a `::new()`
+// caller in tests yet, so we just need the field-shape stub for the
+// wasm/native `task_diff` stubs above to type-check.
+//
+// `allow(dead_code)` because clippy's default build profile doesn't
+// see the `task_diff` wasm/native stubs (their `cfg` excludes them),
+// and the stub `CommitDiff` looks unused. The real `CommitDiff` lives
+// in `api::diff` under `feature = "server"`.
+#[cfg(not(feature = "server"))]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct CommitDiff {
+    pub sha: String,
+    pub author: String,
+    pub timestamp: String,
+    pub message: String,
+    pub patch: String,
 }
 
 // Native non-server stub — exists so default builds (no `server` feature,
@@ -363,5 +432,34 @@ pub async fn task_log_tail_ralph(
 ) -> Result<Vec<LogLine>, ServerFnError> {
     Err(ServerFnError(
         "task_log_tail_ralph requires `--features server` or a wasm build (default `web` feature)".to_string(),
+    ))
+}
+
+// Native non-server stub for `task_cancel` (M3c). Same pattern as
+// the log-tail stubs above. `allow(dead_code)` for the default build
+// profile where this stub is unreachable.
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "server")))]
+#[allow(dead_code)]
+pub async fn task_cancel(
+    _workdir: String,
+    _task_id: String,
+) -> Result<(), ServerFnError> {
+    Err(ServerFnError(
+        "task_cancel requires `--features server` or a wasm build (default `web` feature)".to_string(),
+    ))
+}
+
+// Native non-server stub for `task_diff` (M3c). Uses the local
+// `CommitDiff` stub above (also `cfg(not(feature = "server"))`) to
+// type-check in default builds. `allow(dead_code)` for default build
+// where this stub is unreachable.
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "server")))]
+#[allow(dead_code)]
+pub async fn task_diff(
+    _workdir: String,
+    _task_id: String,
+) -> Result<Vec<CommitDiff>, ServerFnError> {
+    Err(ServerFnError(
+        "task_diff requires `--features server` or a wasm build (default `web` feature)".to_string(),
     ))
 }

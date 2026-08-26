@@ -41,7 +41,7 @@ use dioxus::prelude::*;
 
 use crate::api::task_get;
 use crate::components::{AssertionCard, FindingCard, ReceiptCard, StatusPill, StoryCard};
-use crate::domain::TaskId;
+use crate::domain::{TaskId, TaskState};
 use crate::routes::Route;
 
 /// Read the default workdir from `ALPS_UI_WORKDIR` or fall back to
@@ -165,9 +165,12 @@ fn PopulatedDetail(
 
         ReceiptsSection { receipts: detail.receipts.clone() }
 
-        // Footer: navigation links to Log / Diff / Cancel. M3b wires the
-// "Open log" stub to a real <Link> pointing at Route::TaskLog. M3c
-// will replace "View diff" and "Cancel" with the same pattern.
+        // Footer: navigation links to Log / Diff / Cancel. M3b wired
+        // the "Open log" stub to a real <Link>. M3c wires the
+        // "View diff" stub to a real <Link>, AND replaces "Cancel"
+        // (a plain span) with a use_action-driven button that calls
+        // `task_cancel` on click. Cancel only renders when
+        // `state == Running` per M3 brief story 3c.4.
         div { class: "flex items-center gap-3 text-sm",
             Link {
                 to: Route::TaskLog { id: id.clone() },
@@ -175,9 +178,65 @@ fn PopulatedDetail(
                 "Open log →"
             }
             span { class: "text-slate-300", "·" }
-            span { class: "text-slate-400", "View diff →" }
+            Link {
+                to: Route::TaskDiff { id: id.clone() },
+                class: "text-slate-700 hover:text-slate-900 hover:underline",
+                "View diff →"
+            }
             span { class: "text-slate-300", "·" }
-            span { class: "text-slate-400", "Cancel" }
+            if summary.state == TaskState::Running {
+                CancelButton { id: id.clone() }
+            }
+        }
+    }
+}
+
+/// Cancel button — only rendered when `TaskState::Running`. Click
+/// dispatches `task_cancel` via Dioxus's `use_action`; on success,
+/// the action returns Ok and we trigger a re-fetch of the task detail
+/// (the orchestrator's SIGTERM handler writes to `.alps-sigterm.log`,
+/// and `task_get` reflects the new state on next read). On Err,
+/// surface the message as a small banner.
+///
+/// Note: `use_action` requires the future's Err type to impl
+/// `Into<CapturedError>`. `ServerFnError` doesn't impl that directly,
+/// so we wrap with `anyhow::Error::msg` which auto-converts via
+/// `impl<E: Into<anyhow::Error>> From<E> for CapturedError`.
+#[component]
+fn CancelButton(id: TaskId) -> Element {
+    let mut cancelling = use_signal(|| false);
+    let mut error_msg = use_signal::<Option<String>>(|| None);
+    let mut cancel = use_action(move |(wd, tid): (String, String)| {
+        let wd = wd.clone();
+        let tid = tid.clone();
+        async move {
+            crate::api::task_cancel(wd, tid)
+                .await
+                .map_err(|e| anyhow::anyhow!("task_cancel failed: {e:?}"))
+        }
+    });
+
+    rsx! {
+        div { class: "flex flex-col gap-1",
+            button {
+                class: "text-red-600 hover:text-red-800 hover:underline disabled:text-slate-400 disabled:no-underline",
+                disabled: *cancelling.read(),
+                onclick: move |_| {
+                    cancelling.set(true);
+                    error_msg.set(None);
+                    let wd = default_workdir();
+                    let tid = id.0.clone();
+                    cancel.call((wd, tid));
+                },
+                if *cancelling.read() {
+                    "Cancelling…"
+                } else {
+                    "Cancel"
+                }
+            }
+            if let Some(err) = error_msg.read().clone() {
+                p { class: "text-xs text-red-600", "{err}" }
+            }
         }
     }
 }

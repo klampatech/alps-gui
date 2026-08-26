@@ -25,7 +25,7 @@
 # Usage:
 #   ./scripts/verify-us-007.sh [--port <PORT>]   # default: 5274
 #
-# Exit code 0 = all 15 acceptance criteria pass.
+# Exit code 0 = all 18 acceptance criteria pass.
 #
 # Criteria count by milestone (keep in sync with the alps-ui-m3-brief.md):
 #   smoke #1 (FIXTURES-era): 8
@@ -33,7 +33,9 @@
 #   M2 (task_run):           9  (+ server-fn dispatch surface; same count)
 #   M3a (TaskDetail):       12  (+5c TaskCard <Link>, +5d /tasks/<id> renders)
 #   M3b (TaskLog):          15  (+5e telemetry curl, +5f ralph curl,
-#                                 +5g TaskLog page both panes + Pause)
+#                                +5g TaskLog page both panes + Pause)
+#   M3c (TaskDiff + cancel): 18  (+5h task_diff curl, +5i task_cancel
+#                                 not-found, +5j TaskDiff page markers)
 
 set -euo pipefail
 
@@ -639,6 +641,145 @@ else
     rm -f "$TASKLOG_HTML_TMP"
 fi
 
+# ─────────────────────────────────────────────────────────────────────
+# Acceptance #5h (M3c.1): task_diff server fn returns a JSON array
+# of CommitDiff records for a known task.
+#
+# Same endpoint-hash extraction as #5e/5f: pull the macro-generated
+# xxh64 hash from the dx serve startup log. task_diff lives in the
+# `diff` module, not `log` — different hash. Two separate endpoints.
+# ─────────────────────────────────────────────────────────────────────
+
+# Hash for the task_diff endpoint (different module = different hash).
+DIFF_HASH=$(grep -oE 'Registering: POST /api/task_diff[0-9]+' "$SERVE_LOG" 2>/dev/null \
+    | tail -1 | sed 's/.*task_diff//')
+if [ -z "$DIFF_HASH" ]; then
+    echo "  FAIL #5h: could not extract task_diff hash from dx serve log"
+    cleanup_serve
+    exit 1
+fi
+TASK_DIFF_URL="/api/task_diff${DIFF_HASH}"
+
+if [ -z "${FIRST_TASK_ID:-}" ]; then
+    echo "  WARN #5h: no tasks in ~/Development/alps-runs/tasks/ — skipping task_diff curl"
+else
+    TASKDIFF_BODY="{\"workdir\":\"/home/kyle/Development/alps-runs\",\"task_id\":\"$FIRST_TASK_ID\"}"
+    TASKDIFF_RESP_TMP="$(mktemp)"
+    TASKDIFF_HTTP=$(curl -s -o "$TASKDIFF_RESP_TMP" -w "%{http_code}" \
+        -H "Content-Type: application/json" \
+        -X POST -d "$TASKDIFF_BODY" \
+        "http://127.0.0.1:$PORT$TASK_DIFF_URL" || echo "curl-failed")
+    if [ "$TASKDIFF_HTTP" != "200" ]; then
+        echo "  FAIL #5h: task_diff returned HTTP $TASKDIFF_HTTP"
+        head -20 "$TASKDIFF_RESP_TMP"
+        rm -f "$TASKDIFF_RESP_TMP"
+        cleanup_serve
+        exit 1
+    fi
+    if ! head -c1 "$TASKDIFF_RESP_TMP" | grep -qF '['; then
+        echo "  FAIL #5h: task_diff response is not a JSON array"
+        head -c 200 "$TASKDIFF_RESP_TMP"
+        rm -f "$TASKDIFF_RESP_TMP"
+        cleanup_serve
+        exit 1
+    fi
+    PARSE_RESULT=$(python3 -c '
+import json, sys
+data = json.load(open(sys.argv[1]))
+if not isinstance(data, list):
+    print("NOT_ARRAY"); sys.exit(1)
+required = {"sha", "author", "timestamp", "message", "patch"}
+for c in data:
+    missing = required - set(c.keys())
+    if missing:
+        print(f"MISSING:{missing}"); sys.exit(1)
+print(f"OK:{len(data)}")
+' "$TASKDIFF_RESP_TMP" 2>&1)
+    if [[ "$PARSE_RESULT" == NOT_ARRAY* ]] || [[ "$PARSE_RESULT" == MISSING* ]]; then
+        echo "  FAIL #5h: task_diff response schema: $PARSE_RESULT"
+        head -c 500 "$TASKDIFF_RESP_TMP"
+        rm -f "$TASKDIFF_RESP_TMP"
+        cleanup_serve
+        exit 1
+    fi
+    echo "  PASS #5h: task_diff returns $PARSE_RESULT CommitDiff records"
+    rm -f "$TASKDIFF_RESP_TMP"
+fi
+
+# ─────────────────────────────────────────────────────────────────────
+# Acceptance #5i (M3c.3): task_cancel against a non-existent task_id
+# returns Err (ServerFnError). The brief calls out the negative
+# path explicitly: "task_cancel against a non-existent task_id
+# returns Err with 'no such task' in the message".
+# ─────────────────────────────────────────────────────────────────────
+
+CANCEL_HASH=$(grep -oE 'Registering: POST /api/task_cancel[0-9]+' "$SERVE_LOG" 2>/dev/null \
+    | tail -1 | sed 's/.*task_cancel//')
+if [ -z "$CANCEL_HASH" ]; then
+    echo "  FAIL #5i: could not extract task_cancel hash from dx serve log"
+    cleanup_serve
+    exit 1
+fi
+TASK_CANCEL_URL="/api/task_cancel${CANCEL_HASH}"
+
+CANCEL_BODY='{"workdir":"/home/kyle/Development/alps-runs","task_id":"9999-99-99T99:99:99-zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"}'
+CANCEL_RESP_TMP="$(mktemp)"
+CANCEL_HTTP=$(curl -s -o "$CANCEL_RESP_TMP" -w "%{http_code}" \
+    -H "Content-Type: application/json" \
+    -X POST -d "$CANCEL_BODY" \
+    "http://127.0.0.1:$PORT$TASK_CANCEL_URL" || echo "curl-failed")
+
+if grep -qF "no such task" "$CANCEL_RESP_TMP"; then
+    echo "  PASS #5i: task_cancel against fake task_id returns 'no such task' error"
+elif [ "$CANCEL_HTTP" = "200" ] && grep -qF "error" "$CANCEL_RESP_TMP"; then
+    echo "  PASS #5i: task_cancel against fake task_id returns Err in body"
+else
+    echo "  FAIL #5i: task_cancel against fake task_id — HTTP $CANCEL_HTTP"
+    echo "    Expected 'no such task' in body; got:"
+    head -c 500 "$CANCEL_RESP_TMP"
+    rm -f "$CANCEL_RESP_TMP"
+    cleanup_serve
+    exit 1
+fi
+rm -f "$CANCEL_RESP_TMP"
+
+# ─────────────────────────────────────────────────────────────────────
+# Acceptance #5j (M3c.5-3c.7): /tasks/<id>/diff page renders the
+# page header + back-link in the SSR'd HTML.
+# ─────────────────────────────────────────────────────────────────────
+
+if [ -z "${FIRST_TASK_ID:-}" ]; then
+    echo "  WARN #5j: no tasks in ~/Development/alps-runs/tasks/ — skipping TaskDiff page check"
+else
+    TASKDIFF_HTML_TMP="$(mktemp)"
+    TASKDIFF_HTTP=$(curl -s -o "$TASKDIFF_HTML_TMP" -w "%{http_code}" \
+        "http://127.0.0.1:$PORT/tasks/$FIRST_TASK_ID/diff" || echo "curl-failed")
+    if [ "$TASKDIFF_HTTP" != "200" ]; then
+        echo "  FAIL #5j: /tasks/$FIRST_TASK_ID/diff returned HTTP $TASKDIFF_HTTP"
+        head -20 "$TASKDIFF_HTML_TMP"
+        rm -f "$TASKDIFF_HTML_TMP"
+        cleanup_serve
+        exit 1
+    fi
+    TASKDIFF_MARKERS=("Diff" "Back to detail")
+    TASKDIFF_MISSING=0
+    for marker in "${TASKDIFF_MARKERS[@]}"; do
+        if ! grep -qF "$marker" "$TASKDIFF_HTML_TMP"; then
+            echo "  FAIL #5j: TaskDiff HTML missing marker '$marker'"
+            TASKDIFF_MISSING=1
+        fi
+    done
+    if [ "$TASKDIFF_MISSING" = "1" ]; then
+        echo "    SSR'd TaskDiff should render the 'Diff' heading + 'Back to detail' link."
+        head -40 "$TASKDIFF_HTML_TMP" | sed 's/^/      /'
+        rm -f "$TASKDIFF_HTML_TMP"
+        cleanup_serve
+        exit 1
+    fi
+    echo "  PASS #5j: /tasks/$FIRST_TASK_ID/diff renders header + back-link"
+    rm -f "$TASKDIFF_HTML_TMP"
+fi
+
 # Acceptance #6: dx serve background process is killed cleanly at end.
 cleanup_serve
 sleep 2
@@ -648,13 +789,9 @@ if ss -tlnp 2>/dev/null | grep -q "127.0.0.1:$PORT"; then
 fi
 echo "  PASS #6: dx serve killed cleanly, port $PORT freed"
 
-# ─────────────────────────────────────────────────────────────────────
-# Summary
-# ─────────────────────────────────────────────────────────────────────
-
 echo
 echo "================================================================"
-echo "  US-007 verification: all 15 acceptance criteria pass."
+echo "  US-007 verification: all 18 acceptance criteria pass."
 echo "  Logs: $LOG_DIR"
 echo "================================================================"
 exit 0
