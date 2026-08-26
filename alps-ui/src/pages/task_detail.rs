@@ -42,6 +42,7 @@ use dioxus::prelude::*;
 use crate::api::task_get;
 use crate::components::{AssertionCard, FindingCard, ReceiptCard, StatusPill, StoryCard};
 use crate::domain::TaskId;
+use crate::routes::Route;
 
 /// Read the default workdir from `ALPS_UI_WORKDIR` or fall back to
 /// `~/Development/alps-runs`. Same logic as Dashboard's
@@ -96,6 +97,7 @@ pub fn TaskDetail(id: TaskId) -> Element {
             PopulatedDetail {
                 detail: detail.clone(),
                 task_id: task_id_for_display.clone(),
+                id: id.clone(),
             }
         },
         Some(Err(e)) => rsx! {
@@ -122,6 +124,7 @@ pub fn TaskDetail(id: TaskId) -> Element {
 fn PopulatedDetail(
     detail: crate::domain::TaskDetail,
     task_id: String,
+    id: TaskId,
 ) -> Element {
     let summary = detail.summary.clone();
     let elapsed_display = summary
@@ -162,9 +165,15 @@ fn PopulatedDetail(
 
         ReceiptsSection { receipts: detail.receipts.clone() }
 
-        // Footer: navigation links to Log / Diff / Cancel (M3b/c land these as real pages).
+        // Footer: navigation links to Log / Diff / Cancel. M3b wires the
+// "Open log" stub to a real <Link> pointing at Route::TaskLog. M3c
+// will replace "View diff" and "Cancel" with the same pattern.
         div { class: "flex items-center gap-3 text-sm",
-            span { class: "text-slate-400", "Open log →" }
+            Link {
+                to: Route::TaskLog { id: id.clone() },
+                class: "text-slate-700 hover:text-slate-900 hover:underline",
+                "Open log →"
+            }
             span { class: "text-slate-300", "·" }
             span { class: "text-slate-400", "View diff →" }
             span { class: "text-slate-300", "·" }

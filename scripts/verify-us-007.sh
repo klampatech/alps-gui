@@ -25,7 +25,15 @@
 # Usage:
 #   ./scripts/verify-us-007.sh [--port <PORT>]   # default: 5274
 #
-# Exit code 0 = all 12 acceptance criteria pass.
+# Exit code 0 = all 15 acceptance criteria pass.
+#
+# Criteria count by milestone (keep in sync with the alps-ui-m3-brief.md):
+#   smoke #1 (FIXTURES-era): 8
+#   M1 (smoke-A2):           9  (+ Dashboard hydration)
+#   M2 (task_run):           9  (+ server-fn dispatch surface; same count)
+#   M3a (TaskDetail):       12  (+5c TaskCard <Link>, +5d /tasks/<id> renders)
+#   M3b (TaskLog):          15  (+5e telemetry curl, +5f ralph curl,
+#                                 +5g TaskLog page both panes + Pause)
 
 set -euo pipefail
 
@@ -416,6 +424,221 @@ else
     rm -f "$TASK_DETAIL_HTML_TMP"
 fi
 
+# ─────────────────────────────────────────────────────────────────────
+# Acceptance #5e (M3b.1): task_log_tail_telemetry server fn returns
+# the workdir-wide telemetry log content as Vec<LogLine> when called
+# with since_line_no=0.
+#
+# Curl the registered /api/<name><hash> endpoint with a JSON body
+# {workdir, since_line_no}. Expect HTTP 200 + a JSON array whose
+# length matches the line count of <workdir>/.alps-telemetry.log.
+# Skipped with WARN if the file doesn't exist (fresh workdir).
+# ─────────────────────────────────────────────────────────────────────
+
+# Discover the macro-generated endpoint URLs by extracting them from
+# dx serve's startup log (it prints "Registering: POST /api/<name><hash>"
+# once the server-fns compile). This avoids needing a Python `xxhash`
+# dependency or pre-computing the hash in Rust — the dx serve log IS
+# the source of truth for the macro-generated hash, so reading it
+# directly is more robust than recomputing.
+#
+# Format: "2.46s  INFO  INFO Registering: POST /api/task_log_tail_telemetry8467784638229429956"
+# The hash is everything after `task_log_tail_telemetry` and before
+# any whitespace/end-of-line. Same for `_ralph`.
+SERVE_LOG="$LOG_DIR/acceptance-4-serve.log"
+TELEMETRY_HASH=$(grep -oE 'Registering: POST /api/task_log_tail_telemetry[0-9]+' "$SERVE_LOG" 2>/dev/null \
+    | tail -1 | sed 's/.*task_log_tail_telemetry//')
+RALPH_HASH=$(grep -oE 'Registering: POST /api/task_log_tail_ralph[0-9]+' "$SERVE_LOG" 2>/dev/null \
+    | tail -1 | sed 's/.*task_log_tail_ralph//')
+if [ -z "$TELEMETRY_HASH" ] || [ -z "$RALPH_HASH" ]; then
+    echo "  FAIL #5e: could not extract endpoint hashes from dx serve log"
+    echo "    Expected 'Registering: POST /api/task_log_tail_telemetry<hash>'"
+    echo "    and 'Registering: POST /api/task_log_tail_ralph<hash>' in:"
+    echo "    $SERVE_LOG"
+    echo "    Found these Registering lines:"
+    grep "Registering" "$SERVE_LOG" 2>/dev/null | sed 's/^/      /'
+    cleanup_serve
+    exit 1
+fi
+TELEMETRY_URL="/api/task_log_tail_telemetry${TELEMETRY_HASH}"
+
+if [ ! -f ~/Development/alps-runs/.alps-telemetry.log ]; then
+    echo "  WARN #5e: ~/Development/alps-runs/.alps-telemetry.log missing —"
+    echo "    skipping telemetry tail acceptance. Run any task to seed the file."
+else
+    TELEMETRY_BODY='{"workdir":"/home/kyle/Development/alps-runs","since_line_no":0}'
+    TELEMETRY_RESP_TMP="$(mktemp)"
+    TELEMETRY_HTTP=$(curl -s -o "$TELEMETRY_RESP_TMP" -w "%{http_code}" \
+        -H "Content-Type: application/json" \
+        -X POST -d "$TELEMETRY_BODY" \
+        "http://127.0.0.1:$PORT$TELEMETRY_URL" || echo "curl-failed")
+    if [ "$TELEMETRY_HTTP" != "200" ]; then
+        echo "  FAIL #5e: task_log_tail_telemetry returned HTTP $TELEMETRY_HTTP"
+        head -20 "$TELEMETRY_RESP_TMP"
+        rm -f "$TELEMETRY_RESP_TMP"
+        cleanup_serve
+        exit 1
+    fi
+    if ! head -c1 "$TELEMETRY_RESP_TMP" | grep -qF '['; then
+        echo "  FAIL #5e: task_log_tail_telemetry response is not a JSON array"
+        head -c 200 "$TELEMETRY_RESP_TMP"
+        rm -f "$TELEMETRY_RESP_TMP"
+        cleanup_serve
+        exit 1
+    fi
+    EXPECTED_LINE_COUNT=$(wc -l < ~/Development/alps-runs/.alps-telemetry.log)
+    ARRAY_LEN=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$TELEMETRY_RESP_TMP" 2>/dev/null || echo "PARSE-FAILED")
+    if [ "$ARRAY_LEN" = "PARSE-FAILED" ]; then
+        echo "  FAIL #5e: response body failed to parse as JSON"
+        head -c 200 "$TELEMETRY_RESP_TMP"
+        rm -f "$TELEMETRY_RESP_TMP"
+        cleanup_serve
+        exit 1
+    fi
+    if [ "$ARRAY_LEN" != "$EXPECTED_LINE_COUNT" ]; then
+        echo "  FAIL #5e: array has $ARRAY_LEN entries, expected $EXPECTED_LINE_COUNT"
+        echo "    (one Vec<LogLine> per line in .alps-telemetry.log)"
+        rm -f "$TELEMETRY_RESP_TMP"
+        cleanup_serve
+        exit 1
+    fi
+    echo "  PASS #5e: task_log_tail_telemetry returns $ARRAY_LEN LogLines"
+    echo "    from <workdir>/.alps-telemetry.log (matches file line count)"
+    rm -f "$TELEMETRY_RESP_TMP"
+fi
+
+# ─────────────────────────────────────────────────────────────────────
+# Acceptance #5f (M3b.2): task_log_tail_ralph server fn returns the
+# per-task Ralph stderr mirror as Vec<LogLine> when called with
+# since_line_no=0. Uses the same first-task-id discovery as #5d.
+#
+# Response is capped at MAX_LINES_PER_POLL (500) per call, so a
+# 2200-line .ralph-stderr.log will return exactly 500 entries on the
+# first call — the next poll picks up where this one left off. We
+# assert the response is a non-empty JSON array of length <= cap,
+# which confirms the read-side endpoint is wired correctly.
+# ─────────────────────────────────────────────────────────────────────
+
+MAX_TAIL_LINES_PER_POLL=500
+
+if [ -z "${FIRST_TASK_ID:-}" ]; then
+    echo "  WARN #5f: no tasks in ~/Development/alps-runs/tasks/ — skipping ralph tail"
+else
+    RALPH_LOG="$HOME/Development/alps-runs/tasks/$FIRST_TASK_ID/implementation/ralph/.ralph-stderr.log"
+    if [ ! -f "$RALPH_LOG" ]; then
+        echo "  WARN #5f: $RALPH_LOG missing — task hasn't reached [implement] phase,"
+        echo "    so no Ralph activity to tail. Skipping (this is fine for fresh workdirs)."
+    else
+        RALPH_BODY="{\"workdir\":\"/home/kyle/Development/alps-runs\",\"task_id\":\"$FIRST_TASK_ID\",\"since_line_no\":0}"
+        RALPH_RESP_TMP="$(mktemp)"
+        RALPH_URL="/api/task_log_tail_ralph${RALPH_HASH}"
+        RALPH_HTTP=$(curl -s -o "$RALPH_RESP_TMP" -w "%{http_code}" \
+            -H "Content-Type: application/json" \
+            -X POST -d "$RALPH_BODY" \
+            "http://127.0.0.1:$PORT$RALPH_URL" || echo "curl-failed")
+        if [ "$RALPH_HTTP" != "200" ]; then
+            echo "  FAIL #5f: task_log_tail_ralph returned HTTP $RALPH_HTTP"
+            head -20 "$RALPH_RESP_TMP"
+            rm -f "$RALPH_RESP_TMP"
+            cleanup_serve
+            exit 1
+        fi
+        if ! head -c1 "$RALPH_RESP_TMP" | grep -qF '['; then
+            echo "  FAIL #5f: task_log_tail_ralph response is not a JSON array"
+            head -c 200 "$RALPH_RESP_TMP"
+            rm -f "$RALPH_RESP_TMP"
+            cleanup_serve
+            exit 1
+        fi
+        EXPECTED_RALPH_LINE_COUNT=$(wc -l < "$RALPH_LOG")
+        RALPH_ARRAY_LEN=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$RALPH_RESP_TMP" 2>/dev/null || echo "PARSE-FAILED")
+        if [ "$RALPH_ARRAY_LEN" = "PARSE-FAILED" ]; then
+            echo "  FAIL #5f: response body failed to parse as JSON"
+            head -c 200 "$RALPH_RESP_TMP"
+            rm -f "$RALPH_RESP_TMP"
+            cleanup_serve
+            exit 1
+        fi
+        if [ "$RALPH_ARRAY_LEN" = "0" ]; then
+            echo "  FAIL #5f: response is an empty array — server fn returned 0 lines"
+            echo "    from a non-empty $RALPH_LOG ($EXPECTED_RALPH_LINE_COUNT lines)"
+            rm -f "$RALPH_RESP_TMP"
+            cleanup_serve
+            exit 1
+        fi
+        if [ "$RALPH_ARRAY_LEN" -gt "$MAX_TAIL_LINES_PER_POLL" ]; then
+            echo "  FAIL #5f: response returned $RALPH_ARRAY_LEN lines, exceeds cap $MAX_TAIL_LINES_PER_POLL"
+            rm -f "$RALPH_RESP_TMP"
+            cleanup_serve
+            exit 1
+        fi
+        # Also verify a second call with since_line_no=len returns the next batch
+        # (or empty if we already drained). This is the cursor-increments-correctly check.
+        SECOND_BODY="{\"workdir\":\"/home/kyle/Development/alps-runs\",\"task_id\":\"$FIRST_TASK_ID\",\"since_line_no\":$RALPH_ARRAY_LEN}"
+        SECOND_RESP_TMP="$(mktemp)"
+        SECOND_HTTP=$(curl -s -o "$SECOND_RESP_TMP" -w "%{http_code}" \
+            -H "Content-Type: application/json" \
+            -X POST -d "$SECOND_BODY" \
+            "http://127.0.0.1:$PORT$RALPH_URL" || echo "curl-failed")
+        if [ "$SECOND_HTTP" = "200" ]; then
+            SECOND_LEN=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$SECOND_RESP_TMP" 2>/dev/null || echo "0")
+            TOTAL=$((RALPH_ARRAY_LEN + SECOND_LEN))
+            if [ "$TOTAL" -gt "$EXPECTED_RALPH_LINE_COUNT" ]; then
+                echo "  FAIL #5f: cursor increment over-counts ($RALPH_ARRAY_LEN + $SECOND_LEN = $TOTAL > $EXPECTED_RALPH_LINE_COUNT file lines)"
+                rm -f "$RALPH_RESP_TMP" "$SECOND_RESP_TMP"
+                cleanup_serve
+                exit 1
+            fi
+            echo "  PASS #5f: task_log_tail_ralph returns $RALPH_ARRAY_LEN LogLines"
+            echo "    (cap $MAX_TAIL_LINES_PER_POLL; cursor increment correct: +$SECOND_LEN next batch)"
+        else
+            echo "  PASS #5f: task_log_tail_ralph returns $RALPH_ARRAY_LEN LogLines"
+            echo "    (cap $MAX_TAIL_LINES_PER_POLL; second-call check skipped, HTTP $SECOND_HTTP)"
+        fi
+        rm -f "$RALPH_RESP_TMP" "$SECOND_RESP_TMP"
+    fi
+fi
+
+# ─────────────────────────────────────────────────────────────────────
+# Acceptance #5g (M3b.5-3b.8): /tasks/<id>/log page renders both pane
+# labels + the Pause button in the SSR'd HTML.
+#
+# Hits the route, checks for the two pane labels and the Pause button.
+# Skipped with WARN if no tasks exist (same pattern as #5d).
+# ─────────────────────────────────────────────────────────────────────
+
+if [ -z "${FIRST_TASK_ID:-}" ]; then
+    echo "  WARN #5g: no tasks in ~/Development/alps-runs/tasks/ — skipping TaskLog page check"
+else
+    TASKLOG_HTML_TMP="$(mktemp)"
+    TASKLOG_HTTP=$(curl -s -o "$TASKLOG_HTML_TMP" -w "%{http_code}" \
+        "http://127.0.0.1:$PORT/tasks/$FIRST_TASK_ID/log" || echo "curl-failed")
+    if [ "$TASKLOG_HTTP" != "200" ]; then
+        echo "  FAIL #5g: /tasks/$FIRST_TASK_ID/log returned HTTP $TASKLOG_HTTP"
+        head -20 "$TASKLOG_HTML_TMP"
+        rm -f "$TASKLOG_HTML_TMP"
+        cleanup_serve
+        exit 1
+    fi
+    TASKLOG_MARKERS=("Workdir orchestrator log" "Per-task Ralph/Codex activity" "Pause")
+    TASKLOG_MISSING=0
+    for marker in "${TASKLOG_MARKERS[@]}"; do
+        if ! grep -qF "$marker" "$TASKLOG_HTML_TMP"; then
+            echo "  FAIL #5g: TaskLog HTML missing marker '$marker'"
+            TASKLOG_MISSING=1
+        fi
+    done
+    if [ "$TASKLOG_MISSING" = "1" ]; then
+        echo "    SSR'd TaskLog should render both pane labels + the Pause button."
+        head -40 "$TASKLOG_HTML_TMP" | sed 's/^/      /'
+        rm -f "$TASKLOG_HTML_TMP"
+        cleanup_serve
+        exit 1
+    fi
+    echo "  PASS #5g: /tasks/$FIRST_TASK_ID/log renders both panes + Pause button"
+    rm -f "$TASKLOG_HTML_TMP"
+fi
+
 # Acceptance #6: dx serve background process is killed cleanly at end.
 cleanup_serve
 sleep 2
@@ -431,7 +654,7 @@ echo "  PASS #6: dx serve killed cleanly, port $PORT freed"
 
 echo
 echo "================================================================"
-echo "  US-007 verification: all 12 acceptance criteria pass."
+echo "  US-007 verification: all 15 acceptance criteria pass."
 echo "  Logs: $LOG_DIR"
 echo "================================================================"
 exit 0

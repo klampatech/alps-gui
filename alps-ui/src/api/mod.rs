@@ -13,13 +13,16 @@
 //! - [`run`] — `task_run` (spawns `alps run`). V1 is a deferred stub
 //!   returning `Err("task_run deferred to v2")`; the real spawn lands
 //!   when US-007/US-008 wire the NewTask form's submit handler.
+//! - [`log`] — `task_log_tail_telemetry` (reads `<workdir>/.alps-telemetry.log`)
+//!   and `task_log_tail_ralph` (reads `<workdir>/tasks/<id>/implementation/ralph/.ralph-stderr.log`).
+//!   Pure read-side, polled-tail design (M3b).
 //!
 //! ## What is NOT here
 //!
-//! - `task_log_stream` (SSE) — deferred per SPEC §7.1 / US-008.
-//! - `task_cancel` (SIGTERM dispatch) — deferred per SPEC §7.1 / US-008.
-//! - `task_diff` (read-side) — deferred per SPEC §7.1 / US-008.
-//! - `settings_get` / `settings_set` — deferred per SPEC §7.1 / US-008.
+//! - `task_log_stream` (SSE) — deferred to v2. M3b uses polled tails.
+//! - `task_cancel` (SIGTERM dispatch) — M3c.
+//! - `task_diff` (read-side) — M3c.
+//! - `settings_get` / `settings_set` — M4/M5.
 //!
 //! ## Why `#[cfg(feature = "server")]` on the module AND each fn
 //!
@@ -57,10 +60,14 @@
 #![cfg_attr(feature = "server", allow(unused_imports))]
 
 #[cfg(feature = "server")]
+mod log;
+#[cfg(feature = "server")]
 mod run;
 #[cfg(feature = "server")]
 mod tasks;
 
+#[cfg(feature = "server")]
+pub use log::{task_log_tail_ralph, task_log_tail_telemetry, LogLine};
 #[cfg(feature = "server")]
 pub use run::task_run;
 #[cfg(feature = "server")]
@@ -220,6 +227,85 @@ pub async fn task_get(workdir: String, task_id: String) -> Result<Option<crate::
     wasm_post_json("tasks", "task_get", &Args { workdir, task_id }).await
 }
 
+// Wasm-side stubs for the M3b log-tail endpoints. The server fns live
+// in `log.rs`; the macro's `module_path!()` for both is therefore
+// `alps_ui::api::log`, which is the helper's `module` argument.
+//
+// The body shape matches `___Body_Serialize__<workdir, since_line_no>`
+// and `___Body_Serialize__<workdir, task_id, since_line_no>` per the
+// `#[server]` macro's arg-count → body struct mapping.
+#[cfg(all(target_arch = "wasm32", not(feature = "server")))]
+pub async fn task_log_tail_telemetry(
+    workdir: String,
+    since_line_no: u64,
+) -> Result<Vec<LogLine>, ServerFnError> {
+    #[derive(serde::Serialize)]
+    struct Args {
+        workdir: String,
+        since_line_no: u64,
+    }
+    wasm_post_json(
+        "log",
+        "task_log_tail_telemetry",
+        &Args { workdir, since_line_no },
+    )
+    .await
+}
+
+#[cfg(all(target_arch = "wasm32", not(feature = "server")))]
+pub async fn task_log_tail_ralph(
+    workdir: String,
+    task_id: String,
+    since_line_no: u64,
+) -> Result<Vec<LogLine>, ServerFnError> {
+    #[derive(serde::Serialize)]
+    struct Args {
+        workdir: String,
+        task_id: String,
+        since_line_no: u64,
+    }
+    wasm_post_json(
+        "log",
+        "task_log_tail_ralph",
+        &Args { workdir, task_id, since_line_no },
+    )
+    .await
+}
+
+// Stub `LogLine` type for the default (`web`-only) build, mirroring
+// the `ServerFnError` stub above. The `api::log` module is gated out
+// in this build, so the wasm/native stubs above can't reach the real
+// `LogLine` type — but they still want a type-stable return signature
+// so callers compile without `#![cfg(feature = "server")]` everywhere.
+// Field shape matches the real `LogLine` (see `api/log.rs`).
+//
+// The `new()` constructor is required because unit tests in
+// `pages/task_log.rs` reference `LogLine::new(n, text)` to construct
+// fixtures. CI runs `cargo test --bin alps-ui` WITHOUT `--features
+// server`, so the test profile resolves to this stub. Missing
+// `::new()` was the root cause of the 2026-08-26 CI failure.
+#[cfg(not(feature = "server"))]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct LogLine {
+    pub line_no: u64,
+    pub text: String,
+}
+
+#[cfg(not(feature = "server"))]
+impl LogLine {
+    // `allow(dead_code)` because clippy runs against the default
+    // (no --features server) build profile where the `api::log` real
+    // type AND its `new()` don't exist. Tests construct LogLine via
+    // this stub, but clippy's default profile doesn't traverse
+    // `#[cfg(test)]` mods, so the `new()` call sites are invisible
+    // to it. The function is still load-bearing for `cargo test`
+    // (the test profile resolves to this stub).
+    #[allow(dead_code)]
+    pub fn new(line_no: u64, text: String) -> Self {
+        Self { line_no, text }
+    }
+}
+
 // Native non-server stub — exists so default builds (no `server` feature,
 // no `wasm32` target) can compile. The default build was originally
 // wasm-only, but the CI matrix also tests `cargo build --bin alps-ui`
@@ -253,5 +339,29 @@ pub async fn task_get(
 ) -> Result<Option<crate::domain::TaskDetail>, ServerFnError> {
     Err(ServerFnError(
         "task_get requires `--features server` or a wasm build (default `web` feature)".to_string(),
+    ))
+}
+
+// Native non-server stubs for the M3b log-tail endpoints. Same
+// pattern as the other fns: default builds (no `server` feature, no
+// `wasm32` target) need a compileable stub so the page module compiles.
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "server")))]
+pub async fn task_log_tail_telemetry(
+    _workdir: String,
+    _since_line_no: u64,
+) -> Result<Vec<LogLine>, ServerFnError> {
+    Err(ServerFnError(
+        "task_log_tail_telemetry requires `--features server` or a wasm build (default `web` feature)".to_string(),
+    ))
+}
+
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "server")))]
+pub async fn task_log_tail_ralph(
+    _workdir: String,
+    _task_id: String,
+    _since_line_no: u64,
+) -> Result<Vec<LogLine>, ServerFnError> {
+    Err(ServerFnError(
+        "task_log_tail_ralph requires `--features server` or a wasm build (default `web` feature)".to_string(),
     ))
 }
