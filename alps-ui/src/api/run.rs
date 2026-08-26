@@ -178,7 +178,21 @@ pub async fn task_run(
         ))
     })?;
 
-    // Step 4: read stderr until we see `task_id=<id>` (or 5s
+    // Capture the OS PID immediately. Before M3c, we `mem::forget`-
+    // ed the Child and lost the PID, which made the Cancel button
+    // (story 3c.4) impossible — there was no PID to SIGTERM. M3c
+    // (2026-08-26, Kyle-approved Option C) inserts the Child into
+    // the process registry so `task_cancel` can find + signal it,
+    // and ALSO writes `<workdir>/.alps-pids.json` so the tracking
+    // survives an alps-ui server restart.
+    //
+    // `Child::id()` returns `Option<u32>` — None on some platforms if
+    // the child hasn't been fully spawned yet. In practice on Linux
+    // it's always Some by the time spawn() returns, but be defensive.
+    let pid = child.id().unwrap_or_else(|| std::process::id());
+    let started_at = chrono::Utc::now();
+
+    // Step 4: read stdout until we see `task_id=<id>` (or 5s
     // timeout, or EOF). The CLI emits this line via tracing within
     // the first few ms of startup.
     let stdout = child
@@ -197,14 +211,82 @@ pub async fn task_run(
         }
     };
 
-    // Detach: we don't wait() — the child runs in the background.
-    // The OS will clean up its process-group entry when it exits.
-    // (We deliberately leak the `Child` handle; tokio will reap on
-    // drop, and the std::process id we recorded in the prompt-file
-    // name is enough for ops to identify the run later if needed.)
-    std::mem::forget(child);
+    // M3c: register the Child + write `.alps-pids.json` so
+    // `task_cancel` can find this orchestrator later. The registry
+    // insert is infallible (just an Arc<Mutex> bump); the file
+    // write is the load-bearing piece — if it fails (disk full,
+    // permission denied), log a warning but still return the
+    // task_id. The in-memory map covers the same-task-server path;
+    // the file is the cross-restart fallback.
+    crate::api::process_registry::insert(
+        task_id.clone(),
+        child,
+        pid,
+        started_at,
+        workdir_path.to_string_lossy().to_string(),
+    );
+    if let Err(e) = write_alps_pids_json(&workdir_path) {
+        eprintln!(
+            "task_run: warning — failed to write {}/.alps-pids.json: {e}",
+            workdir_path.display()
+        );
+    }
 
     Ok(task_id)
+}
+
+/// Serialize the current registry snapshot to
+/// `<workdir>/.alps-pids.json` atomically (temp file + rename).
+///
+/// File shape:
+/// ```json
+/// {
+///   "tasks": [
+///     {"task_id": "...", "pid": 12345, "started_at": "2026-08-26T..."},
+///     ...
+///   ]
+/// }
+/// ```
+///
+/// Atomic write so a partial write never lands in the file (a
+/// partial write would let `task_cancel` see a missing entry mid-
+/// transition and surface a confusing "no such task" error).
+fn write_alps_pids_json(workdir: &std::path::Path) -> std::io::Result<()> {
+    use serde::Serialize;
+
+    #[derive(Serialize)]
+    struct PidFile<'a> {
+        tasks: Vec<PidEntry<'a>>,
+    }
+    #[derive(Serialize)]
+    struct PidEntry<'a> {
+        task_id: &'a str,
+        pid: u32,
+        started_at: String,
+    }
+
+    let snapshot = crate::api::process_registry::snapshot();
+    let entries: Vec<PidEntry> = snapshot
+        .iter()
+        .map(|(id, pid, started_at, _workdir)| PidEntry {
+            task_id: id.as_str(),
+            pid: *pid,
+            started_at: started_at.to_rfc3339(),
+        })
+        .collect();
+
+    let file = PidFile { tasks: entries };
+    let json = serde_json::to_string_pretty(&file)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+    let target = workdir.join(".alps-pids.json");
+    // Temp file in the same directory so the rename is atomic
+    // (same filesystem).
+    let pid = std::process::id();
+    let tmp = workdir.join(format!(".alps-pids.json.{pid}.tmp"));
+    std::fs::write(&tmp, json.as_bytes())?;
+    std::fs::rename(&tmp, &target)?;
+    Ok(())
 }
 
 /// Read stdout line-by-line, return the first match for

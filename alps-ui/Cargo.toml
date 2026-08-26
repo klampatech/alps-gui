@@ -19,6 +19,7 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 gloo-storage = { workspace = true }
 tracing = { workspace = true }
+anyhow = { workspace = true }
 
 # Native-only deps. `dioxus-fullstack` unconditionally depends on
 # `reqwest` → `tokio` → `mio`, none of which compile to

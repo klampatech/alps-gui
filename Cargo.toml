@@ -19,6 +19,7 @@ reqwest = { version = "0.12", features = ["json", "stream"] }
 eventsource-stream = "0.2"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
+anyhow = "1"
 
 # Direct deps on the `dioxus-fullstack-*` + `dioxus-server` crates so
 # `src/api/{tasks,run}.rs` can `use dioxus_fullstack_macro::server;`
