@@ -451,10 +451,13 @@ fi
 # The hash is everything after `task_log_tail_telemetry` and before
 # any whitespace/end-of-line. Same for `_ralph`.
 SERVE_LOG="$LOG_DIR/acceptance-4-serve.log"
+# `|| true` so `set -e` doesn't trip when grep finds no matches (fresh
+# workdir, dx serve didn't log any "Registering:" yet — though it
+# always should, but defensive against any future log-format change).
 TELEMETRY_HASH=$(grep -oE 'Registering: POST /api/task_log_tail_telemetry[0-9]+' "$SERVE_LOG" 2>/dev/null \
-    | tail -1 | sed 's/.*task_log_tail_telemetry//')
+    | tail -1 | sed 's/.*task_log_tail_telemetry//' || true)
 RALPH_HASH=$(grep -oE 'Registering: POST /api/task_log_tail_ralph[0-9]+' "$SERVE_LOG" 2>/dev/null \
-    | tail -1 | sed 's/.*task_log_tail_ralph//')
+    | tail -1 | sed 's/.*task_log_tail_ralph//' || true)
 if [ -z "$TELEMETRY_HASH" ] || [ -z "$RALPH_HASH" ]; then
     echo "  FAIL #5e: could not extract endpoint hashes from dx serve log"
     echo "    Expected 'Registering: POST /api/task_log_tail_telemetry<hash>'"
