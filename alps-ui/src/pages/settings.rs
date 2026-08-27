@@ -109,7 +109,7 @@ fn WorkdirCard(
                     oninput: move |evt| input_value.set(evt.value()),
                 }
                 button {
-                    class: "px-4 py-2 bg-slate-700 text-white text-sm rounded hover:bg-slate-800",
+                    class: "px-4 py-2 bg-slate-800 text-white text-sm rounded hover:bg-slate-700",
                     onclick: on_save,
                     "Save"
                 }
