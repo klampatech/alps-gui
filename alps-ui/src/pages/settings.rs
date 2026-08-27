@@ -132,6 +132,7 @@ fn WorkdirCard(
                 }
                 button {
                     class: "px-4 py-2 bg-slate-800 text-white text-sm rounded hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed",
+                    style: "flex-shrink: 0; width: 6rem;",
                     disabled: "{is_saving}",
                     onclick: move |evt| on_save.call(evt),
                     if is_saving {
