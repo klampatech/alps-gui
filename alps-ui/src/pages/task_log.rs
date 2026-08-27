@@ -49,14 +49,11 @@ use wasm_bindgen::JsCast;
 
 use crate::api::{task_log_tail_ralph, task_log_tail_telemetry, LogLine};
 use crate::domain::TaskId;
+use crate::state;
 
-/// Default workdir — same `ALPS_UI_WORKDIR` env var pattern as
-/// Dashboard and TaskDetail. M4 Settings will replace this with a
-/// shared `Signal<String>`.
-fn default_workdir() -> String {
-    std::env::var("ALPS_UI_WORKDIR")
-        .unwrap_or_else(|_| format!("{}/Development/alps-runs", env!("HOME")))
-}
+// Local `default_workdir` removed in M4-proper — replaced by the
+// shared `state::Workdir` context. See `state.rs` for the resolution
+// chain (config file → env var → `$HOME/Development/alps-runs`).
 
 /// Maximum lines kept in memory per pane.
 ///
@@ -120,7 +117,8 @@ pub fn TaskLog(id: TaskId) -> Element {
     // The task_id is a `TaskId` newtype; clone the inner String for
     // the polling loop's owned values.
     let task_id_value = id.0.clone();
-    let workdir_value = default_workdir();
+    let workdir_ctx = use_context::<state::Workdir>();
+    let workdir_value = workdir_ctx.get();
 
     // Polling loop. `use_future` spawns a task tied to the component's
     // lifetime; the loop sleeps `POLL_INTERVAL_MS` between fetches
@@ -433,9 +431,20 @@ mod tests {
     #[test]
     fn task_log_ssr_shows_both_pane_labels_and_pause_button() {
         use crate::pages::TaskLog;
+        use crate::state::provide_workdir;
+
+        // Wrap TaskLog in an inline component that provides the
+        // Workdir context (M4-proper). Tests previously rendered the
+        // page directly, but TaskLog now reads via use_context which
+        // is uninitialized without App's provide_workdir() call.
+        #[component]
+        fn TestApp() -> Element {
+            let _wd = provide_workdir();
+            rsx! { TaskLog { id: TaskId::new("test-id") } }
+        }
 
         let html = dioxus_ssr::render_element(rsx! {
-            TaskLog { id: TaskId::new("test-id") }
+            TestApp {}
         });
 
         // Top pane label.

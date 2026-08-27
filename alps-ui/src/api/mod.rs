@@ -71,6 +71,8 @@ pub mod process_registry;
 pub mod run;
 #[cfg(feature = "server")]
 pub mod tasks;
+#[cfg(feature = "server")]
+pub mod workdir;
 
 #[cfg(feature = "server")]
 pub use cancel::task_cancel;
@@ -82,6 +84,8 @@ pub use log::{task_log_tail_ralph, task_log_tail_telemetry, LogLine};
 pub use run::task_run;
 #[cfg(feature = "server")]
 pub use tasks::{task_get, tasks_list};
+#[cfg(feature = "server")]
+pub use workdir::{get_workdir, set_workdir};
 
 // Re-export the error type so callers can name it in their signatures
 // without depending on dioxus_fullstack_core directly. Gated on the
@@ -320,6 +324,26 @@ pub async fn task_diff(
     .await
 }
 
+// Wasm stub for `get_workdir` (M4-proper). No args — just hits
+// `/api/get_workdir<hash>` with an empty JSON object.
+#[cfg(all(target_arch = "wasm32", not(feature = "server")))]
+pub async fn get_workdir() -> Result<String, ServerFnError> {
+    #[derive(serde::Serialize)]
+    struct Args {}
+    wasm_post_json("workdir", "get_workdir", &Args {}).await
+}
+
+// Wasm stub for `set_workdir` (M4-proper). Single-arg: the new
+// workdir path.
+#[cfg(all(target_arch = "wasm32", not(feature = "server")))]
+pub async fn set_workdir(path: String) -> Result<(), ServerFnError> {
+    #[derive(serde::Serialize)]
+    struct Args {
+        path: String,
+    }
+    wasm_post_json("workdir", "set_workdir", &Args { path }).await
+}
+
 // Stub `LogLine` type for the default (`web`-only) build, mirroring
 // the `ServerFnError` stub above. The `api::log` module is gated out
 // in this build, so the wasm/native stubs above can't reach the real
@@ -461,5 +485,23 @@ pub async fn task_diff(
 ) -> Result<Vec<CommitDiff>, ServerFnError> {
     Err(ServerFnError(
         "task_diff requires `--features server` or a wasm build (default `web` feature)".to_string(),
+    ))
+}
+
+// Native non-server stub for `get_workdir` (M4-proper).
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "server")))]
+#[allow(dead_code)]
+pub async fn get_workdir() -> Result<String, ServerFnError> {
+    Err(ServerFnError(
+        "get_workdir requires `--features server` or a wasm build (default `web` feature)".to_string(),
+    ))
+}
+
+// Native non-server stub for `set_workdir` (M4-proper).
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "server")))]
+#[allow(dead_code)]
+pub async fn set_workdir(_path: String) -> Result<(), ServerFnError> {
+    Err(ServerFnError(
+        "set_workdir requires `--features server` or a wasm build (default `web` feature)".to_string(),
     ))
 }

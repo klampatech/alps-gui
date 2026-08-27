@@ -45,8 +45,10 @@ mod domain;
 mod layouts;
 mod pages;
 mod routes;
+mod state;
 
 use routes::Route;
+use state::provide_workdir;
 
 fn main() {
     dioxus::launch(App);
@@ -54,6 +56,37 @@ fn main() {
 
 #[component]
 fn App() -> Element {
+    // Provide the shared `Workdir` context at the top of the tree so
+    // every page (and the NavBar layout) reads from the same
+    // `Signal<String>`. Initial value comes from `default_workdir()`
+    // inside `state.rs` — server build reads `$HOME/.alps-ui-config.json`
+    // first, then `ALPS_UI_WORKDIR`, then `$HOME/Development/alps-runs`.
+    // See `state.rs` docs for the full fallback chain + persistence model.
+    let workdir = provide_workdir();
+
+    // On mount, fetch the persisted workdir from the server (if any).
+    // The server-side `default_workdir()` reads `$HOME/.alps-ui-config.json`
+    // — that's the user's saved choice across sessions. If the fetch
+    // returns a non-empty path, update the Signal so every page reads
+    // the persisted path, not the wasm-side fallback (`~/.alps-runs`).
+    //
+    // This is M4-proper's "persistence round-trip" wired at the App level.
+    // Without this, a fresh page load would always show the wasm fallback
+    // path, even if the user previously saved a different workdir via
+    // Settings. Per Kyle's 2026-08-26 decision: server-side persistence only.
+    use_future(move || {
+        let mut workdir = workdir;
+        async move {
+            if let Ok(saved_path) = crate::api::get_workdir().await {
+                if !saved_path.is_empty() {
+                    workdir.set(saved_path);
+                }
+            }
+            // Silently ignore errors — the wasm-side default is the
+            // fallback. The Settings Save button surfaces real errors.
+        }
+    });
+
     rsx! {
         // Inline the compiled Tailwind + custom stylesheet into the <head>
         // so they apply in BOTH the wasm client build and the

@@ -25,10 +25,10 @@
 # Usage:
 #   ./scripts/verify-us-007.sh [--port <PORT>]   # default: 5274
 #
-# Exit code 0 = all 20 acceptance criteria pass.
+# Exit code 0 = all 21 acceptance criteria pass.
 #
 # Criteria count by milestone (keep in sync with the alps-ui-m3-brief.md
-# and alps-ui-m4-prep-brief.md):
+# and alps-ui-m4-proper-brief.md):
 #   smoke #1 (FIXTURES-era): 8
 #   M1 (smoke-A2):           9  (+ Dashboard hydration)
 #   M2 (task_run):           9  (+ server-fn dispatch surface; same count)
@@ -39,7 +39,7 @@
 #                                 not-found, +5j TaskDiff page markers)
 #   M4-prep (Settings UI):   20  (+6a Settings page renders 3 sections,
 #                                 +6b MINIMAX_API_KEY status matches env)
-
+#   M4-proper (workdir context + persistence): 21  (+6c set_workdir/get_workdir config roundtrip)
 set -euo pipefail
 
 # ─────────────────────────────────────────────────────────────────────
@@ -786,6 +786,99 @@ else
     rm -f "$TASKDIFF_HTML_TMP"
 fi
 
+# ─────────────────────────────────────────────────────────────────────
+# Acceptance #6c (M4-proper): set_workdir + get_workdir server fns
+# roundtrip through $HOME/.alps-ui-config.json.
+#
+# We back up the user's real config file (if present), write a known
+# value via set_workdir, then read it back via get_workdir + verify
+# the on-disk JSON contains the path. The original file is restored
+# in the cleanup trap so the test doesn't leak state.
+# ─────────────────────────────────────────────────────────────────────
+
+WORKDIR_HASH=$(grep -oE 'Registering: POST /api/set_workdir[0-9]+' "$SERVE_LOG" 2>/dev/null \
+    | tail -1 | sed 's/.*set_workdir//' || true)
+GETWORKDIR_HASH=$(grep -oE 'Registering: POST /api/get_workdir[0-9]+' "$SERVE_LOG" 2>/dev/null \
+    | tail -1 | sed 's/.*get_workdir//' || true)
+if [ -z "$WORKDIR_HASH" ] || [ -z "$GETWORKDIR_HASH" ]; then
+    echo "  FAIL #6c: could not extract set_workdir/get_workdir endpoint hashes"
+    echo "    Expected 'Registering: POST /api/set_workdir<hash>' and"
+    echo "    'Registering: POST /api/get_workdir<hash>' in: $SERVE_LOG"
+    grep "Registering" "$SERVE_LOG" 2>/dev/null | sed 's/^/      /'
+    cleanup_serve
+    exit 1
+fi
+CONFIG_PATH="$HOME/.alps-ui-config.json"
+# Back up the user's real config (if any) so the test doesn't leak state.
+CONFIG_BACKUP_TMP="$(mktemp)"
+if [ -f "$CONFIG_PATH" ]; then
+    cp "$CONFIG_PATH" "$CONFIG_BACKUP_TMP"
+fi
+# Cleanup trap: restore the backup.
+trap 'if [ -f "$CONFIG_BACKUP_TMP" ]; then mv "$CONFIG_BACKUP_TMP" "$CONFIG_PATH"; else rm -f "$CONFIG_PATH"; fi; cleanup_serve; exit' EXIT INT TERM
+TEST_WORKDIR="/tmp/alps-ui-m4proper-test-$$"
+# Use single-quote outer + double-quote inner so the JSON body's
+# quotes survive bash interpolation. `"{"path":"$X"}"` would strip
+# the inner quotes (the " inside "..." is a literal " followed by
+# variable interpolation, which is wrong).
+SETWORKDIR_BODY='{"path":"'"$TEST_WORKDIR"'"}'
+SETWORKDIR_RESP_TMP="$(mktemp)"
+SETWORKDIR_HTTP=$(curl -s -o "$SETWORKDIR_RESP_TMP" -w "%{http_code}" \
+    -H "Content-Type: application/json" \
+    -X POST -d "$SETWORKDIR_BODY" \
+    "http://127.0.0.1:$PORT/api/set_workdir$WORKDIR_HASH" || echo "curl-failed")
+if [ "$SETWORKDIR_HTTP" != "200" ]; then
+    echo "  FAIL #6c: set_workdir returned HTTP $SETWORKDIR_HTTP"
+    head -20 "$SETWORKDIR_RESP_TMP"
+    rm -f "$SETWORKDIR_RESP_TMP"
+    cleanup_serve
+    exit 1
+fi
+if [ ! -f "$CONFIG_PATH" ]; then
+    echo "  FAIL #6c: $CONFIG_PATH not written after set_workdir"
+    rm -f "$SETWORKDIR_RESP_TMP"
+    cleanup_serve
+    exit 1
+fi
+if ! grep -qF "$TEST_WORKDIR" "$CONFIG_PATH"; then
+    echo "  FAIL #6c: $CONFIG_PATH does not contain the persisted path"
+    cat "$CONFIG_PATH"
+    rm -f "$SETWORKDIR_RESP_TMP"
+    cleanup_serve
+    exit 1
+fi
+# Roundtrip via get_workdir — the JSON value should match.
+GETWORKDIR_RESP_TMP="$(mktemp)"
+GETWORKDIR_HTTP=$(curl -s -o "$GETWORKDIR_RESP_TMP" -w "%{http_code}" \
+    -H "Content-Type: application/json" \
+    -X POST -d '{}' \
+    "http://127.0.0.1:$PORT/api/get_workdir$GETWORKDIR_HASH" || echo "curl-failed")
+if [ "$GETWORKDIR_HTTP" != "200" ]; then
+    echo "  FAIL #6c: get_workdir returned HTTP $GETWORKDIR_HTTP"
+    head -20 "$GETWORKDIR_RESP_TMP"
+    rm -f "$GETWORKDIR_RESP_TMP" "$SETWORKDIR_RESP_TMP"
+    cleanup_serve
+    exit 1
+fi
+if ! grep -qF "$TEST_WORKDIR" "$GETWORKDIR_RESP_TMP"; then
+    echo "  FAIL #6c: get_workdir did not return the persisted path"
+    cat "$GETWORKDIR_RESP_TMP"
+    rm -f "$GETWORKDIR_RESP_TMP" "$SETWORKDIR_RESP_TMP"
+    cleanup_serve
+    exit 1
+fi
+echo "  PASS #6c: set_workdir wrote $CONFIG_PATH; get_workdir roundtrips the value"
+rm -f "$GETWORKDIR_RESP_TMP" "$SETWORKDIR_RESP_TMP"
+
+# Inline restore (not just trap-deferred) so the next test block
+# (#6a from PR #8, which checks the SSR'd Settings page reflects
+# the user's real saved workdir) sees the original config, not our
+# test value. The trap is kept as a backstop in case #6c itself fails
+# before reaching this point.
+if [ -f "$CONFIG_BACKUP_TMP" ]; then
+    mv "$CONFIG_BACKUP_TMP" "$CONFIG_PATH"
+fi
+
 # Acceptance #6: dx serve background process is killed cleanly at end.
 
 # ─────────────────────────────────────────────────────────────────────
@@ -883,7 +976,7 @@ echo "  PASS #6: dx serve killed cleanly, port $PORT freed"
 
 echo
 echo "================================================================"
-echo "  US-007 verification: all 20 acceptance criteria pass."
+echo "  US-007 verification: all 21 acceptance criteria pass."
 echo "  Logs: $LOG_DIR"
 echo "================================================================"
 exit 0
