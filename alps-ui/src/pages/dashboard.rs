@@ -47,19 +47,12 @@ use crate::api::{task_run, tasks_list};
 use crate::components::{ResponsiveGrid, StatusPill};
 use crate::domain::TaskId;
 use crate::routes::Route;
+use crate::state;
 
-/// Default workdir the Dashboard reads tasks from.
-///
-/// Override with the `ALPS_UI_WORKDIR` env var at serve time (the
-/// `dx serve --` invocation picks it up via `std::env::var`). Once
-/// M4 lands, this constant disappears and the workdir is read from
-/// the persisted Settings (with this env-var as the cold-start
-/// fallback).
-fn default_workdir() -> String {
-    std::env::var("ALPS_UI_WORKDIR")
-        .unwrap_or_else(|_| format!("{}/Development/alps-runs", env!("HOME")))
-}
-
+/// Default workdir was moved to `crate::state::default_workdir()` in
+/// M4-proper. The single source of truth is now the `Workdir` context
+/// provided in `App`, and every page reads via
+/// `use_context::<state::Workdir>()`.
 /// Format a duration in seconds as a short human-readable string.
 fn format_elapsed(secs: u64) -> String {
     if secs < 60 {
@@ -106,7 +99,7 @@ pub fn Dashboard() -> Element {
     // dispatch (or when we add `use_loader` to a Dioxus release that
     // supports it), this can switch to `use_loader` for the snappier
     // first-paint with live data.
-    let workdir_signal = use_signal(default_workdir);
+    let workdir_signal = use_context::<state::Workdir>().signal();
     let mut tasks_resource = use_resource(move || {
         let wd = workdir_signal.cloned();
         async move { tasks_list(wd).await }
@@ -165,6 +158,13 @@ fn NewTaskSection() -> Element {
     let mut submit_state = use_signal(|| SubmitState::Idle);
     let mut last_task_id = use_signal(String::new);
 
+    // Capture the workdir context once. The closure below is `move`,
+    // so cloning the `Workdir` (it's `Copy`) is fine. Reading the
+    // Signal at submit-time (not mount-time) means if the user changes
+    // workdir via Settings between mount + submit, the new value is
+    // picked up — see M4-proper plan 2026-08-26.
+    let workdir_ctx = use_context::<state::Workdir>();
+
     let on_submit = move |evt: Event<FormData>| async move {
         evt.prevent_default();
         let prompt_text = prompt.read().clone();
@@ -177,7 +177,7 @@ fn NewTaskSection() -> Element {
         submit_state.set(SubmitState::Submitting);
         // Default deliverable_path = empty (CLI auto-detects from prompt
         // per `alps-cli/src/main.rs:813-830`).
-        match task_run(default_workdir(), String::new(), prompt_text).await {
+        match task_run(workdir_ctx.get(), String::new(), prompt_text).await {
             Ok(id) => {
                 last_task_id.set(id.clone());
                 submit_state.set(SubmitState::Success(id));
@@ -422,9 +422,20 @@ mod tests {
     #[test]
     fn dashboard_ssr_shows_header_and_section_title() {
         use crate::pages::Dashboard;
+        use crate::state::{provide_workdir, Workdir};
+
+        // Wrap Dashboard in an inline component that provides the
+        // Workdir context (M4-proper). Tests previously rendered the
+        // page directly, but the page now reads via use_context which
+        // is uninitialized without App's provide_workdir() call.
+        #[component]
+        fn TestApp() -> Element {
+            let _wd = provide_workdir();
+            rsx! { Dashboard {} }
+        }
 
         let html = dioxus_ssr::render_element(rsx! {
-            Dashboard {}
+            TestApp {}
         });
 
         assert!(

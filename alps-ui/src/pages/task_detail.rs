@@ -43,15 +43,11 @@ use crate::api::task_get;
 use crate::components::{AssertionCard, FindingCard, ReceiptCard, StatusPill, StoryCard};
 use crate::domain::{TaskId, TaskState};
 use crate::routes::Route;
+use crate::state;
 
-/// Read the default workdir from `ALPS_UI_WORKDIR` or fall back to
-/// `~/Development/alps-runs`. Same logic as Dashboard's
-/// `default_workdir` — kept inline here to avoid a cross-module
-/// coupling between `pages::dashboard` and `pages::task_detail`.
-fn default_workdir() -> String {
-    std::env::var("ALPS_UI_WORKDIR")
-        .unwrap_or_else(|_| format!("{}/Development/alps-runs", env!("HOME")))
-}
+// Local `default_workdir` was removed in M4-proper — every page
+// reads via `use_context::<state::Workdir>()`. The shared context
+// is provided in `App` (see `main.rs`).
 
 /// Format a duration in seconds as a short human-readable string.
 /// Mirrors Dashboard's helper so the two pages render elapsed time
@@ -79,11 +75,11 @@ pub fn TaskDetail(id: TaskId) -> Element {
     // The route already gives us a typed `TaskId`; pass `id.0.clone()`
     // into the server fn because the async closure needs an owned
     // String (the closure outlives the call frame).
-    let workdir = default_workdir();
+    let workdir_ctx = use_context::<state::Workdir>();
     let task_id_for_fn = id.0.clone();
     let task_id_for_display = id.0.clone();
     let resource = use_resource(move || {
-        let wd = workdir.clone();
+        let wd = workdir_ctx.get();
         let tid = task_id_for_fn.clone();
         async move { task_get(wd, tid).await }
     });
@@ -91,7 +87,7 @@ pub fn TaskDetail(id: TaskId) -> Element {
     let body = match &*resource.read_unchecked() {
         None => rsx! { LoadingCard {} },
         Some(Ok(None)) => rsx! {
-            NotFoundCard { id: id.0.clone(), workdir: default_workdir() }
+            NotFoundCard { id: id.0.clone(), workdir: workdir_ctx.get() }
         },
         Some(Ok(Some(detail))) => rsx! {
             PopulatedDetail {
@@ -140,6 +136,9 @@ fn PopulatedDetail(
         .as_ref()
         .map(|impl_| impl_.ralph_branch.clone())
         .unwrap_or_else(|| "—".to_string());
+    // PopulatedDetail doesn't need the Workdir context directly —
+    // the CancelButton inner component has its own use_context call
+    // and is the only place that needs workdir (M4-proper).
 
     rsx! {
         div { class: "rounded-lg border border-slate-200 bg-white p-4 shadow-sm space-y-3",
@@ -206,6 +205,7 @@ fn PopulatedDetail(
 fn CancelButton(id: TaskId) -> Element {
     let mut cancelling = use_signal(|| false);
     let mut error_msg = use_signal::<Option<String>>(|| None);
+    let workdir_ctx = use_context::<state::Workdir>();
     let mut cancel = use_action(move |(wd, tid): (String, String)| {
         let wd = wd.clone();
         let tid = tid.clone();
@@ -224,7 +224,7 @@ fn CancelButton(id: TaskId) -> Element {
                 onclick: move |_| {
                     cancelling.set(true);
                     error_msg.set(None);
-                    let wd = default_workdir();
+                    let wd = workdir_ctx.get();
                     let tid = id.0.clone();
                     cancel.call((wd, tid));
                 },

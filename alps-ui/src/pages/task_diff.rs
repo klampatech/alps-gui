@@ -25,16 +25,11 @@ use crate::api::CommitDiff;
 
 use crate::domain::TaskId;
 use crate::routes::Route;
+use crate::state;
 
-/// Same logic as the other pages (dashboard, task_detail, task_log) —
-/// duplicated rather than hoisted because alps-ui has no shared
-/// `pages/common.rs` and adding one for two lines of env-var logic is
-/// over-engineering. Future story: hoist to `crate::config::workdir()`
-/// when M4 (Settings) lands and a third caller needs it.
-fn default_workdir() -> String {
-    std::env::var("ALPS_UI_WORKDIR")
-        .unwrap_or_else(|_| format!("{}/Development/alps-runs", env!("HOME")))
-}
+// Local `default_workdir` removed in M4-proper — replaced by the
+// shared `state::Workdir` context. See `state.rs` for the resolution
+// chain (config file → env var → `$HOME/Development/alps-runs`).
 
 /// Maximum number of commits we'll render. Beyond this, show a
 /// "X more commits not shown" banner (git log can return thousands
@@ -45,7 +40,8 @@ const MAX_COMMITS_TO_RENDER: usize = 100;
 /// `use_resource(task_diff)`.
 #[component]
 pub fn TaskDiff(id: TaskId) -> Element {
-    let workdir = default_workdir();
+    let workdir_ctx = use_context::<state::Workdir>();
+    let workdir = workdir_ctx.get();
     let task_id_for_fn = id.0.clone();
     let task_id_for_display = id.0.clone();
 
