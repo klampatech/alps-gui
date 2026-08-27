@@ -25,9 +25,10 @@
 # Usage:
 #   ./scripts/verify-us-007.sh [--port <PORT>]   # default: 5274
 #
-# Exit code 0 = all 18 acceptance criteria pass.
+# Exit code 0 = all 20 acceptance criteria pass.
 #
-# Criteria count by milestone (keep in sync with the alps-ui-m3-brief.md):
+# Criteria count by milestone (keep in sync with the alps-ui-m3-brief.md
+# and alps-ui-m4-prep-brief.md):
 #   smoke #1 (FIXTURES-era): 8
 #   M1 (smoke-A2):           9  (+ Dashboard hydration)
 #   M2 (task_run):           9  (+ server-fn dispatch surface; same count)
@@ -36,6 +37,8 @@
 #                                +5g TaskLog page both panes + Pause)
 #   M3c (TaskDiff + cancel): 18  (+5h task_diff curl, +5i task_cancel
 #                                 not-found, +5j TaskDiff page markers)
+#   M4-prep (Settings UI):   20  (+6a Settings page renders 3 sections,
+#                                 +6b MINIMAX_API_KEY status matches env)
 
 set -euo pipefail
 
@@ -781,6 +784,92 @@ else
 fi
 
 # Acceptance #6: dx serve background process is killed cleanly at end.
+
+# ─────────────────────────────────────────────────────────────────────
+# Acceptance #6a (M4-prep.1-3): /settings page renders all 3 section
+# markers (Workdir, MINIMAX_API_KEY, About) in the SSR'd HTML.
+#
+# The dx serve is still bound at this point (we're pre-cleanup).
+# Skipping the check when MINIMAX_API_KEY behavior is non-deterministic
+# in CI (it depends on the runner's env) is the wrong call — we WANT
+# to detect if the gating logic regresses. So we explicitly check the
+# env, then assert the rendered HTML matches.
+# ─────────────────────────────────────────────────────────────────────
+
+SETTINGS_HTML_TMP="$(mktemp)"
+SETTINGS_HTTP=$(curl -s -o "$SETTINGS_HTML_TMP" -w "%{http_code}" \
+    "http://127.0.0.1:$PORT/settings" || echo "curl-failed")
+if [ "$SETTINGS_HTTP" != "200" ]; then
+    echo "  FAIL #6a: /settings returned HTTP $SETTINGS_HTTP"
+    head -20 "$SETTINGS_HTML_TMP"
+    rm -f "$SETTINGS_HTML_TMP"
+    cleanup_serve
+    exit 1
+fi
+SETTINGS_MARKERS=("Workdir" "MINIMAX_API_KEY" "About")
+SETTINGS_MISSING=0
+for marker in "${SETTINGS_MARKERS[@]}"; do
+    if ! grep -qF "$marker" "$SETTINGS_HTML_TMP"; then
+        echo "  FAIL #6a: /settings HTML missing section marker '$marker'"
+        SETTINGS_MISSING=1
+    fi
+done
+# Also assert the workdir display matches the script's own
+# default_workdir() expectation. We re-compute it the same way
+# `pages/settings.rs` does (env var first, then $HOME/Development/alps-runs).
+EXPECTED_WD="${ALPS_UI_WORKDIR:-$HOME/Development/alps-runs}"
+if ! grep -qF "$EXPECTED_WD" "$SETTINGS_HTML_TMP"; then
+    echo "  FAIL #6a: /settings HTML missing expected workdir '$EXPECTED_WD'"
+    SETTINGS_MISSING=1
+fi
+if [ "$SETTINGS_MISSING" = "1" ]; then
+    echo "    SSR'd Settings should render the 3 section markers + the current workdir."
+    head -40 "$SETTINGS_HTML_TMP" | sed 's/^/      /'
+    rm -f "$SETTINGS_HTML_TMP"
+    cleanup_serve
+    exit 1
+fi
+echo "  PASS #6a: /settings renders 3 section markers + workdir '$EXPECTED_WD'"
+rm -f "$SETTINGS_HTML_TMP"
+
+# ─────────────────────────────────────────────────────────────────────
+# Acceptance #6b (M4-prep.2): the MINIMAX_API_KEY status copy in the
+# SSR'd HTML matches the actual env-var state at script runtime.
+#
+# Three possible states:
+#   - "Detected (value not displayed)" if MINIMAX_API_KEY is set
+#   - "Not set in environment"     if MINIMAX_API_KEY is unset
+#   - "n/a — browser preview"      (shouldn't happen here — we're
+#                                   running the verify-script via
+#                                   `dx serve --features server`, so
+#                                   the SSR is server-side and reads
+#                                   the env var normally)
+#
+# We compute the expected state from the script's own env, then assert
+# the HTML contains the right copy.
+# ─────────────────────────────────────────────────────────────────────
+
+SETTINGS_HTML_TMP="$(mktemp)"
+curl -s -o "$SETTINGS_HTML_TMP" "http://127.0.0.1:$PORT/settings" || true
+if [ -n "${MINIMAX_API_KEY:-}" ]; then
+    EXPECTED_STATUS="Detected (value not displayed)"
+else
+    EXPECTED_STATUS="Not set in environment"
+fi
+if grep -qF "$EXPECTED_STATUS" "$SETTINGS_HTML_TMP"; then
+    echo "  PASS #6b: /settings MINIMAX_API_KEY status matches env ('$EXPECTED_STATUS')"
+else
+    echo "  FAIL #6b: /settings MINIMAX_API_KEY status mismatch"
+    echo "    Expected: $EXPECTED_STATUS"
+    echo "    Page contains:"
+    grep -oE 'Detected \(value not displayed\)|Not set in environment|n/a — browser preview' \
+        "$SETTINGS_HTML_TMP" | head -3 | sed 's/^/      /'
+    rm -f "$SETTINGS_HTML_TMP"
+    cleanup_serve
+    exit 1
+fi
+rm -f "$SETTINGS_HTML_TMP"
+
 cleanup_serve
 sleep 2
 if ss -tlnp 2>/dev/null | grep -q "127.0.0.1:$PORT"; then
@@ -791,7 +880,7 @@ echo "  PASS #6: dx serve killed cleanly, port $PORT freed"
 
 echo
 echo "================================================================"
-echo "  US-007 verification: all 18 acceptance criteria pass."
+echo "  US-007 verification: all 20 acceptance criteria pass."
 echo "  Logs: $LOG_DIR"
 echo "================================================================"
 exit 0
