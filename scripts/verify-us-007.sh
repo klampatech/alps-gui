@@ -870,6 +870,15 @@ fi
 echo "  PASS #6c: set_workdir wrote $CONFIG_PATH; get_workdir roundtrips the value"
 rm -f "$GETWORKDIR_RESP_TMP" "$SETWORKDIR_RESP_TMP"
 
+# Inline restore (not just trap-deferred) so the next test block
+# (#6a from PR #8, which checks the SSR'd Settings page reflects
+# the user's real saved workdir) sees the original config, not our
+# test value. The trap is kept as a backstop in case #6c itself fails
+# before reaching this point.
+if [ -f "$CONFIG_BACKUP_TMP" ]; then
+    mv "$CONFIG_BACKUP_TMP" "$CONFIG_PATH"
+fi
+
 # Acceptance #6: dx serve background process is killed cleanly at end.
 
 # ─────────────────────────────────────────────────────────────────────
