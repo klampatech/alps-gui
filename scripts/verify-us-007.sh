@@ -454,19 +454,47 @@ fi
 # The hash is everything after `task_log_tail_telemetry` and before
 # any whitespace/end-of-line. Same for `_ralph`.
 SERVE_LOG="$LOG_DIR/acceptance-4-serve.log"
-# `|| true` so `set -e` doesn't trip when grep finds no matches (fresh
-# workdir, dx serve didn't log any "Registering:" yet — though it
-# always should, but defensive against any future log-format change).
-TELEMETRY_HASH=$(grep -oE 'Registering: POST /api/task_log_tail_telemetry[0-9]+' "$SERVE_LOG" 2>/dev/null \
-    | tail -1 | sed 's/.*task_log_tail_telemetry//' || true)
-RALPH_HASH=$(grep -oE 'Registering: POST /api/task_log_tail_ralph[0-9]+' "$SERVE_LOG" 2>/dev/null \
-    | tail -1 | sed 's/.*task_log_tail_ralph//' || true)
+# Retry loop: `dx serve` writes the "Registering: ..." lines during
+# initial server-fn compilation, which can complete AFTER the port
+# binds. The script's #4 PASS only proves the bind, not that all 8
+# `#[server]` fns are registered yet. On cold CI runners the gap can
+# be 5-30s (Pitfall 12 in references/dioxus-0.7-m5-pitfalls.md:
+# "dx serve returns HTTP 500 with 'Backend not ready' for ~30s
+# during the wasm dev server's first compile, even after bind").
+#
+# Without this retry, #5e fails when the script greps the log too
+# early — observed 2026-08-28 on PR #14 (a 81-second gap between
+# bind detection and #5e grep still produced an empty Registering
+# list on the failed run; same code passed on a dispatch rerun
+# after the log buffer flushed). Category 2 (warn-then-retry) per
+# ci-smoke-flake-triage skill: 5 attempts × 3s = 15s budget, fails
+# fast if the log genuinely has no Registering lines (e.g. a
+# regression in the macro that broke the log format).
+#
+# `|| true` so `set -e` doesn't trip when grep finds no matches
+# (fresh workdir, dx serve didn't log any "Registering:" yet —
+# though it always should after the retry budget).
+for attempt in 1 2 3 4 5; do
+    TELEMETRY_HASH=$(grep -oE 'Registering: POST /api/task_log_tail_telemetry[0-9]+' "$SERVE_LOG" 2>/dev/null \
+        | tail -1 | sed 's/.*task_log_tail_telemetry//' || true)
+    RALPH_HASH=$(grep -oE 'Registering: POST /api/task_log_tail_ralph[0-9]+' "$SERVE_LOG" 2>/dev/null \
+        | tail -1 | sed 's/.*task_log_tail_ralph//' || true)
+    if [ -n "$TELEMETRY_HASH" ] && [ -n "$RALPH_HASH" ]; then
+        if [ "$attempt" -gt 1 ]; then
+            echo "  (#5e hash extraction needed $attempt attempts)"
+        fi
+        break
+    fi
+    if [ "$attempt" -lt 5 ]; then
+        sleep 3
+    fi
+done
 if [ -z "$TELEMETRY_HASH" ] || [ -z "$RALPH_HASH" ]; then
     echo "  FAIL #5e: could not extract endpoint hashes from dx serve log"
     echo "    Expected 'Registering: POST /api/task_log_tail_telemetry<hash>'"
     echo "    and 'Registering: POST /api/task_log_tail_ralph<hash>' in:"
     echo "    $SERVE_LOG"
-    echo "    Found these Registering lines:"
+    echo "    Found these Registering lines (after 5×3s retry budget):"
     grep "Registering" "$SERVE_LOG" 2>/dev/null | sed 's/^/      /'
     cleanup_serve
     exit 1
