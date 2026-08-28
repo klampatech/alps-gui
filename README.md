@@ -219,8 +219,9 @@ klampatech/alps-gui/                     # THIS repo
 
 ## Status
 
-**alps-gui v0.1.0 — milestone M4-proper complete (PR #9).** Total: 5 milestones
-merged or in-review, all backed by verify-script acceptance criteria.
+**alps-gui v1.0.0 — milestone M5 complete (PR #11).** Total: 9 milestones
+merged (M0 + M1–M5), all backed by verify-script acceptance criteria
+(21 bash + 21 visual snapshots).
 
 | Milestone | PR | Description | Status |
 |---|---|---|---|
@@ -240,7 +241,7 @@ runs 21 bash criteria end-to-end and exits 0 when green. The
 snapshot suite (21 PNG baselines at 375 / 768 / 1280px) runs as
 a separate CI job (`visual-snapshots` in `.github/workflows/ci.yaml`)
 and exits 0 when all snapshots are within 0.1% pixel-diff of the
-committed baselines. Last verified locally 2026-08-27 (21/21 bash
+committed baselines. Last verified locally 2026-08-28 (21/21 bash
 pass, 21/21 visual pass). CI enforces the same on every PR.
 
 ## Build + run

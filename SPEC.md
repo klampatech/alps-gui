@@ -740,6 +740,8 @@ for every page at all three breakpoints to tests/responsive_layout.rs.
 - All 9 page × 3 breakpoint combinations snapshot identically across runs
 - No horizontal scroll on 375px
 - Touch targets ≥ 44px on phone breakpoint (per Apple's HIG)
+
+**Status:** ✅ SHIPPED 2026-08-28 in PR #11 (M5). 7 routes × 3 viewports = 21 SSR-mode PNG baselines (not 9 routes — `_does_not_exist` is a sentinel; the `_log`/`_diff` variants are sub-routes of the dynamic `/tasks/:id`). 0.08 pixel-diff threshold for cross-chromium drift tolerance. New `visual-snapshots` CI job runs `cargo test --test responsive_layout --features server` in ~5min parallel. Hermetic fixture workdir at `/tmp/alps-ui-snapshot-fixture/` so CI doesn't depend on `~/Development/alps-runs` state. Pitfalls 55-60 in `~/.hermes/skills/projects/alps-gui/references/dioxus-0.7-m5-pitfalls.md`. **No layout regressions detected at 375 / 768 / 1280** — the pre-M5 baseline was already responsive (Tailwind utility classes), so the M5 ship added the regression-gate machinery without surface changes.
 ```
 
 ### Topic G — CI + smoke
@@ -756,8 +758,8 @@ Android NDK) so they stay opt-in via a separate matrix entry for now.
 - Total CI wall-clock stays under 3 minutes (current budget is ~1m38s with 184 tests)
 - ui-desktop and ui-mobile jobs marked allow-failure until toolchain is sorted
 
-# feat: Add a Tier-1 smoke for the UI end-to-end
-Description: scripts/alps-ui-smoke.sh that (a) runs `dx serve --port 5174` in
+# ~~feat: Add a Tier-1 smoke for the UI end-to-end~~
+~~Description: scripts/alps-ui-smoke.sh that (a) runs `dx serve --port 5174` in
 the background, (b) Playwright drives the dashboard to submit a fib-style
 prompt, (c) waits for the orchestrator to finish (via the receipt endpoint),
 (d) asserts the dashboard re-renders with the new task in Done state. Captures
@@ -768,7 +770,15 @@ structurally impossible.
 ## Acceptance Criteria
 - Smoke completes in <5 minutes (Tier-1 prompt is small)
 - All three screenshots saved and visually sane (no layout overflow)
-- Receipts from the underlying alps run match the manual `alps run` shape
+- Receipts from the underlying alps run match the manual `alps run` shape~~
+
+**REMOVED 2026-08-27 per the M5 separation-of-concerns decision (Kyle).**
+PR #12 struck the corresponding §15.3 acceptance item. alps-gui owns UI-layer
+regressions (visual snapshots at 3 viewports cover the visible surface); the
+spawn-recipe regressions a Tier-1 Playwright e2e would catch are owned by
+`klampatech/alps`'s Tier-4 wrapper, not duplicated here. See the §14 risk-register
+row "smoke harness doesn't translate" — its mitigation is now "this task is
+out of scope; alps-cli's Tier-4 wrapper is the authoritative spawn-recipe gate".
 ```
 
 ## 13. What is explicitly out of scope for v1
@@ -789,13 +799,13 @@ structurally impossible.
 | The on-disk artifact model changes (a new field added to `Plan` / `Receipts`) and the UI breaks | Low | Medium | `alps_core::domain` types are shared, so any breakage surfaces at compile-time. We add a UI test that parses a fixture receipt + plan at the top of `tests/api_integration.rs`. |
 | The UI server restarts mid-task and orphans the orchestrator | Low | Medium | Spawned `alps run` is detached (own process group via `setsid`); PID written to `.alps-pids.json`. On server restart, we re-scan the file and surface the running tasks on the dashboard. |
 | SSE backpressure at 100+ lines/sec during heavy Ralph iterations | Medium | Medium | 200ms server poll + 50-line batch cap + 1000-line client-side cap. Verified against smoke #18's 30k-line / 60-min profile (~8 lines/sec average; peaks at ~50 lines/sec). |
-| The smoke harness from `klampatech/alps` (Tier-4 wrapper at `/tmp/alps-tier4-smoke-wrapper.sh`) doesn't translate to the UI's smoke needs | High | Low | The UI's smoke (Topic G) uses a separate Playwright-driven runner that exercises the actual UI flow, not the CLI. The existing Tier-4 wrapper stays as-is for the underlying `alps run` invocation. |
+| The smoke harness from `klampatech/alps` (Tier-4 wrapper at `/tmp/alps-tier4-smoke-wrapper.sh`) doesn't translate to the UI's smoke needs | ~~High~~ **Dropped** | ~~Low~~ **None** | **REMOVED 2026-08-27 per M5 separation-of-concerns decision** (Kyle). The UI does not duplicate the Tier-4 wrapper; spawn-recipe regressions are owned by `klampatech/alps`'s Tier-4 wrapper, and UI-layer regressions are caught by visual snapshots at 3 viewports (PR #11, M5). The §12 Topic G "Add a Tier-1 smoke for the UI end-to-end" feat block is struck-through with rationale; the §15.3 acceptance item was struck in PR #12. |
 
 ## 15. Acceptance gate for v1
 
 The UI is "done for v1" when:
 
-1. **All Topic A–G tasks completed.** Each with its acceptance criteria green.
+1. **All Topic A–F tasks completed + Topic G's CI matrix + visual snapshot ship.** Each with its acceptance criteria green. Topic G's Tier-1 Playwright e2e smoke was **dropped 2026-08-27** (see §12 strike-through); the spawn-recipe regressions it would have caught are owned by `klampatech/alps`'s Tier-4 wrapper, not duplicated in alps-gui's CI. PR coverage: Topic A (smoke-A1 PR + M1 PR #1) · Topic B (M2 PR #4) · Topic C (M3a #5, M3b #6, M3c #7) · Topic D (M4-prep #8, M4-proper #9) · Topic E (covered by M3a TaskDetail) · Topic F (visual snapshots PR #11 + SPEC §15.4 acceptance) · Topic G (CI matrix PR #1, SPEC §15.4 visual snapshots PR #11).
 2. **CI green** on a PR adding `alps-ui` to the workspace. 184 + N (UI) tests passing.
 3. ~~**One end-to-end UI smoke** (Topic G) green — Playwright drives the dashboard → submits a Tier-1 prompt → reads the receipt back from the UI.~~ **REMOVED 2026-08-27 per the M5 separation-of-concerns decision (Kyle):** alps-gui owns UI-layer regressions; spawn-recipe regressions (which is what a Tier-1 Playwright e2e smoke would catch) are owned by `klampatech/alps`'s Tier-4 wrapper, not duplicated in alps-gui's CI. See `~/Obsidian/projects/alps-ui-m5-brief.md` "Why 5b is dropped" section + the §14 risk-register row "The smoke harness from `klampatech/alps` ... doesn't translate to the UI's smoke needs" (the original rationale for why this was even deferred).
 4. **Visual snapshot suite** green at 375 / 768 / 1280 for every page — **SSR-mode** baselines (`dx serve --platform server --features server`), 7 routes × 3 viewports = 21 PNGs, 0.08 threshold for cross-chromium drift tolerance, hermetic fixture workdir. PR #11 (M5). Pitfalls 55-60 in `~/.hermes/skills/projects/alps-gui/references/dioxus-0.7-m5-pitfalls.md`.
