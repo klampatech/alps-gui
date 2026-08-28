@@ -232,11 +232,16 @@ merged or in-review, all backed by verify-script acceptance criteria.
 | M3c (TaskDiff + cancel) | #7 | `task_diff` server fn + `task_cancel` + `.alps-pids.json` write | ✅ merged |
 | M4-prep (Settings UI shell) | #8 | Settings page UI (Workdir + MINIMAX_API_KEY + About) | ✅ merged |
 | M4-proper (workdir context + persistence) | #9 | Shared `Workdir` context + server-side persistence | ✅ merged |
-| M5 (Playwright e2e + snapshots) | — | Visual snapshots at 375 / 768 / 1280px | ⏳ next |
+| M5 (visual snapshots at 375/768/1280) | #11 | `cargo test --test responsive_layout` — 21 SSR-mode PNG baselines; >0.1% pixel-diff gate | ✅ merged |
 
 **Acceptance verification:** `bash scripts/verify-us-007.sh --port <PORT>`
-runs 21 criteria end-to-end and exits 0 when green. Last verified locally
-2026-08-27 (21/21 pass). CI enforces the same suite on every PR.
+runs 21 bash criteria end-to-end and exits 0 when green. The
+`cargo test --test responsive_layout --features server` visual
+snapshot suite (21 PNG baselines at 375 / 768 / 1280px) runs as
+a separate CI job (`visual-snapshots` in `.github/workflows/ci.yaml`)
+and exits 0 when all snapshots are within 0.1% pixel-diff of the
+committed baselines. Last verified locally 2026-08-27 (21/21 bash
+pass, 21/21 visual pass). CI enforces the same on every PR.
 
 ## Build + run
 
@@ -268,6 +273,32 @@ for the full list. Standouts:
 - **#39 (visual verification)** — text-only browser function tests miss
   visual regressions (e.g. invisible buttons, off-by-one CSS). Always
   capture screenshots after UI PRs.
+- **#55 (snapshot test = `--platform server` not `fullstack`)** —
+  `dx serve --features fullstack` builds the wasm bundle, but
+  headless chromium's `--screenshot` mode can't reliably wait for
+  wasm hydration to complete (the `--virtual-time-budget` flag
+  fast-forwards async ops but the screenshot fires before the
+  re-render paints). Use `--platform server --features server`
+  for the snapshot test — captures the deterministic SSR'd HTML
+  instead. The verify-us-007 #5c/#5d gates already assert on
+  SSR'd markers; visual snapshots extend that to the whole layout.
+  The known followup is the M4-proper "Settings initial-load
+  race" — when fixed, the Dashboard's post-hydration layout will
+  match the post-fix baseline, and the diff is the regression fix
+  in action.
+- **#56 (fixture workdir is hermetic)** — the snapshot test
+  defaults to `/tmp/alps-ui-snapshot-fixture/`, not
+  `~/Development/alps-runs/`. Built on-demand by
+  `scripts/alps-ui-snapshot-fixture.sh` (one task in `implemented`
+  state with a plan + implementation). Set
+  `ALPS_UI_SNAPSHOT_WORKDIR=$HOME/Development/alps-runs` to
+  re-baseline against real data (e.g. when you want a UI PR's
+  diff to include the dashboard's populated card state).
+- **#57 (UPDATE_SNAPSHOTS=1 to refresh)** — intentional CSS
+  changes break every affected baseline. Refresh locally with
+  `UPDATE_SNAPSHOTS=1 cargo test --test responsive_layout
+  --features server` and commit the new PNGs. CI never sets
+  this var, so PR-time diffs are real regressions.
 - **#42 (hook-list double-borrow)** — `use_context_provider(|| { use_signal(...) })`
   panics in SSR tests. Split into separate statements.
 - **#44 (bash quote escaping)** — `"{\"key\":\"$X\"}"` strips inner quotes.

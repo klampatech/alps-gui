@@ -40,6 +40,9 @@
 #   M4-prep (Settings UI):   20  (+6a Settings page renders 3 sections,
 #                                 +6b MINIMAX_API_KEY status matches env)
 #   M4-proper (workdir context + persistence): 21  (+6c set_workdir/get_workdir config roundtrip)
+#   M5 (visual snapshots):   21  (no bash criterion — snapshot test is
+#                                 a `cargo test --test responsive_layout`
+#                                 run by the visual-snapshots CI job)
 set -euo pipefail
 
 # ─────────────────────────────────────────────────────────────────────

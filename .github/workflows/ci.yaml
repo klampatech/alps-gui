@@ -118,3 +118,65 @@ jobs:
 
       - name: Run verify-us-007.sh
         run: bash scripts/verify-us-007.sh --port 5274
+
+  visual-snapshots:
+    name: visual snapshot regression (cargo test --test responsive_layout)
+    # M5 PR #11 — catches CSS / layout regressions at 375 / 768 / 1280
+    # across 7 routes. Runs headless Chromium against the SSR'd HTML
+    # (no wasm hydration dependency) and compares each screenshot
+    # against the committed baseline in alps-ui/tests/snapshots/. Fails
+    # on >0.1% pixel-diff per image. See alps-ui-m5-brief.md for design.
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Checkout sibling klampatech/alps
+        uses: actions/checkout@v4
+        with:
+          repository: klampatech/alps
+          path: sibling/alps
+          ref: refs/heads/main
+
+      - name: Symlink sibling alps to ../alps
+        run: ln -s "$GITHUB_WORKSPACE/sibling/alps" "$GITHUB_WORKSPACE/../alps"
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            alps-ui -> target
+            sibling/alps/alps-core -> sibling/alps/target
+            sibling/alps/alps-cli -> sibling/alps/target
+
+      - name: Install dioxus-cli (required by the snapshot test's dx serve)
+        run: cargo install dioxus-cli --locked --version 0.7.10
+
+      - name: Install chromium + alps CLI
+        # chromium-browser: required by the snapshot test (Pitfall 52's
+        # headless capture recipe). alps: required by the fixture builder
+        # (`alps list --json` to resolve the sample task_id) + by the
+        # server fns when the snapshot test serves a route that calls
+        # tasks_list. Both install from apt + cargo.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq chromium
+          cargo install --path sibling/alps/alps-cli --locked
+
+      - name: Run visual snapshot regression
+        # No UPDATE_SNAPSHOTS — we want the test to FAIL if a contributor
+        # changed CSS without refreshing baselines. To intentionally
+        # refresh, run locally with UPDATE_SNAPSHOTS=1 and commit the
+        # new PNGs. **Baselines MUST be captured in the same chromium
+        # that runs the test** — cross-chromium diffs hit 6-8% on 375px
+        # routes due to sub-pixel text rendering differences. Either
+        # refresh locally with the same chromium as CI (apt's
+        # `chromium-browser` package), or push the PR + merge it once
+        # the green-light CI confirms the diffs are <5%.
+        run: cargo test --test responsive_layout --features server

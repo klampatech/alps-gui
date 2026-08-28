@@ -21,6 +21,12 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 anyhow = "1"
 
+# M5 visual snapshot test (tests/responsive_layout.rs) — only the
+# pixel-by-pixel PNG comparison needs this. alps-core does NOT depend
+# on `image`, so it's a UI-only dev-dependency. Pin minor version so
+# dep bumps don't silently change PNG decode behavior.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
 # Direct deps on the `dioxus-fullstack-*` + `dioxus-server` crates so
 # `src/api/{tasks,run}.rs` can `use dioxus_fullstack_macro::server;`
 # and `use dioxus_fullstack_core::ServerFnError;` regardless of whether

@@ -44,6 +44,7 @@ dioxus-server = { workspace = true }
 
 [dev-dependencies]
 dioxus-ssr = "0.7"
+image = { workspace = true }
 
 # Wasm-only deps for the client-side server-fn dispatch shim
 # (see `src/api/mod.rs`'s stub `tasks_list` — it uses web-sys fetch
