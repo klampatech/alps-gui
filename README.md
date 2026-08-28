@@ -283,11 +283,26 @@ for the full list. Standouts:
   for the snapshot test — captures the deterministic SSR'd HTML
   instead. The verify-us-007 #5c/#5d gates already assert on
   SSR'd markers; visual snapshots extend that to the whole layout.
-  The known followup is the M4-proper "Settings initial-load
-  race" — when fixed, the Dashboard's post-hydration layout will
-  match the post-fix baseline, and the diff is the regression fix
-  in action.
-- **#56 (fixture workdir is hermetic)** — the snapshot test
+  The SSR'd HTML is identical pre/post-fix (the Settings input
+  shows the server-side default workdir in SSR mode regardless);
+  the fix only manifests in wasm hydration, which the SSR baselines
+  don't capture by design (per M5d PR #12).
+- **#56 (Settings initial-load race — FIXED 2026-08-28 in PR #14)** —
+  the M4-proper "Settings initial-load race": App-mount
+  `use_future(get_workdir)` resolved AFTER the Settings component
+  mounted and called `workdir_ctx.get()` once at mount, so the
+  input briefly showed the wasm fallback (`~/.alps-runs`) before
+  the persisted value propagated. Fix: replaced the snapshot
+  pattern with a reactive read of `workdir_ctx.signal()` + an
+  `Option<String>` draft signal. Browser function test confirmed
+  end-to-end (wrote `~/.alps-ui-config.json` with a non-fallback
+  workdir, opened `/settings`, confirmed the input showed the
+  persisted value; edited + saved, confirmed the new value
+  persisted + propagated to the Dashboard subtitle). SSR-mode
+  visual snapshots are unchanged — the fix only affects wasm
+  hydration. Full recipe + decision rationale at the top of
+  `alps-ui/src/pages/settings.rs`.
+- **#57 (fixture workdir is hermetic)** — the snapshot test
   defaults to `/tmp/alps-ui-snapshot-fixture/`, not
   `~/Development/alps-runs/`. Built on-demand by
   `scripts/alps-ui-snapshot-fixture.sh` (one task in `implemented`
@@ -295,7 +310,7 @@ for the full list. Standouts:
   `ALPS_UI_SNAPSHOT_WORKDIR=$HOME/Development/alps-runs` to
   re-baseline against real data (e.g. when you want a UI PR's
   diff to include the dashboard's populated card state).
-- **#57 (UPDATE_SNAPSHOTS=1 to refresh)** — intentional CSS
+- **#58 (UPDATE_SNAPSHOTS=1 to refresh)** — intentional CSS
   changes break every affected baseline. Refresh locally with
   `UPDATE_SNAPSHOTS=1 cargo test --test responsive_layout
   --features server` and commit the new PNGs. CI never sets
