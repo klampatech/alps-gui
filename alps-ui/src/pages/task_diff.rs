@@ -38,15 +38,23 @@ const MAX_COMMITS_TO_RENDER: usize = 100;
 
 /// Route handler for `/tasks/:id/diff`. Single fetch via
 /// `use_resource(task_diff)`.
+///
+/// v1.1 fix (PR #16): capture the Workdir **signal** (not the value).
+/// `Workdir::signal()` returns a `Signal<String>`; reading it via
+/// `.cloned()` inside the `use_resource` closure re-fires the
+/// resource when the Workdir context updates (Settings Save, App-mount
+/// `use_future(get_workdir)` resolves). Mirrors the Settings race fix
+/// in PR #14 (Pitfall #56); same latent-bug surface as TaskDetail /
+/// TaskLog. Pre-fix: a user who changed workdir via Settings while on
+/// this page would see the diff stuck on the old workdir's commits.
 #[component]
 pub fn TaskDiff(id: TaskId) -> Element {
-    let workdir_ctx = use_context::<state::Workdir>();
-    let workdir = workdir_ctx.get();
+    let workdir_signal = use_context::<state::Workdir>().signal();
     let task_id_for_fn = id.0.clone();
     let task_id_for_display = id.0.clone();
 
     let resource = use_resource(move || {
-        let wd = workdir.clone();
+        let wd = workdir_signal.cloned();
         let tid = task_id_for_fn.clone();
         async move { crate::api::task_diff(wd, tid).await }
     });

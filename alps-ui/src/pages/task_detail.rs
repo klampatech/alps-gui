@@ -75,11 +75,22 @@ pub fn TaskDetail(id: TaskId) -> Element {
     // The route already gives us a typed `TaskId`; pass `id.0.clone()`
     // into the server fn because the async closure needs an owned
     // String (the closure outlives the call frame).
-    let workdir_ctx = use_context::<state::Workdir>();
+    //
+    // v1.1 fix (PR #16): take the Workdir **signal** (not the value).
+    // `Workdir::signal()` returns a `Signal<String>` that Dioxus tracks
+    // when read inside a `use_resource` closure via `.cloned()`. When
+    // the Workdir context updates (Settings Save, App-mount
+    // `use_future(get_workdir)` resolves), this resource re-fires with
+    // the new workdir. Without this, `workdir_ctx.get()` snapshots once
+    // at mount — pre-fix latent bug: a user who changed workdir while
+    // sitting on a TaskDetail page would see the page stuck on the
+    // old workdir's data (or 404 if the task doesn't exist there).
+    // Mirrors the Settings race fix in PR #14 (Pitfall #56).
+    let workdir_signal = use_context::<state::Workdir>().signal();
     let task_id_for_fn = id.0.clone();
     let task_id_for_display = id.0.clone();
     let resource = use_resource(move || {
-        let wd = workdir_ctx.get();
+        let wd = workdir_signal.cloned();
         let tid = task_id_for_fn.clone();
         async move { task_get(wd, tid).await }
     });
@@ -87,7 +98,7 @@ pub fn TaskDetail(id: TaskId) -> Element {
     let body = match &*resource.read_unchecked() {
         None => rsx! { LoadingCard {} },
         Some(Ok(None)) => rsx! {
-            NotFoundCard { id: id.0.clone(), workdir: workdir_ctx.get() }
+            NotFoundCard { id: id.0.clone(), workdir: workdir_signal.cloned() }
         },
         Some(Ok(Some(detail))) => rsx! {
             PopulatedDetail {
