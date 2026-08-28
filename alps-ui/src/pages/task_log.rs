@@ -113,12 +113,29 @@ pub fn TaskLog(id: TaskId) -> Element {
     let mut paused = use_signal(|| false);
     let mut filter = use_signal(String::new);
 
-    // Capture the route's task_id and workdir once at mount time.
-    // The task_id is a `TaskId` newtype; clone the inner String for
-    // the polling loop's owned values.
+    // Capture the route's task_id once at mount time. The task_id
+    // is a `TaskId` newtype; clone the inner String for the polling
+    // loop's owned values.
+    //
+    // v1.1 fix (PR #16): capture the Workdir **signal** (not the
+    // value). `Workdir::signal()` returns a `Signal<String>`; reading
+    // it via `.cloned()` inside the `use_future` closure re-reads the
+    // signal on each iteration, so when the Workdir context updates
+    // (Settings Save, App-mount `use_future(get_workdir)` resolves),
+    // the polling loop pivots to the new workdir on its next tick.
+    // Without this, the loop would fetch telemetry/ralph lines from
+    // a stale workdir forever, even after the user changes it via
+    // Settings. Mirrors the Settings race fix in PR #14 (Pitfall
+    // #56); same latent-bug surface as TaskDetail/TaskDiff.
+    //
+    // Note: the currently in-flight fetch (the one that's already
+    // awaited when the workdir changes) will complete with the old
+    // workdir's data. The next loop iteration reads the new signal
+    // value and pivots. This is the right semantics — we don't want
+    // to restart the loop on every signal change (would lose buffered
+    // lines); we want each iteration to use the latest workdir.
     let task_id_value = id.0.clone();
-    let workdir_ctx = use_context::<state::Workdir>();
-    let workdir_value = workdir_ctx.get();
+    let workdir_signal = use_context::<state::Workdir>().signal();
 
     // Polling loop. `use_future` spawns a task tied to the component's
     // lifetime; the loop sleeps `POLL_INTERVAL_MS` between fetches
@@ -130,7 +147,7 @@ pub fn TaskLog(id: TaskId) -> Element {
     // `cloned()`) so the loop can write to them via `with_mut`.
     // `paused` is read inside the loop body.
     let _ = use_future(move || {
-        let wd = workdir_value.clone();
+        let wd = workdir_signal.cloned();
         let tid = task_id_value.clone();
         let mut tel_buf = telemetry_lines;
         let mut ral_buf = ralph_lines;
