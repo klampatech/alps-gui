@@ -797,7 +797,7 @@ The UI is "done for v1" when:
 
 1. **All Topic A–G tasks completed.** Each with its acceptance criteria green.
 2. **CI green** on a PR adding `alps-ui` to the workspace. 184 + N (UI) tests passing.
-3. **One end-to-end UI smoke** (Topic G) green — Playwright drives the dashboard → submits a Tier-1 prompt → reads the receipt back from the UI.
-4. **Visual snapshot suite** green at 375 / 768 / 1280 for every page.
+3. ~~**One end-to-end UI smoke** (Topic G) green — Playwright drives the dashboard → submits a Tier-1 prompt → reads the receipt back from the UI.~~ **REMOVED 2026-08-27 per the M5 separation-of-concerns decision (Kyle):** alps-gui owns UI-layer regressions; spawn-recipe regressions (which is what a Tier-1 Playwright e2e smoke would catch) are owned by `klampatech/alps`'s Tier-4 wrapper, not duplicated in alps-gui's CI. See `~/Obsidian/projects/alps-ui-m5-brief.md` "Why 5b is dropped" section + the §14 risk-register row "The smoke harness from `klampatech/alps` ... doesn't translate to the UI's smoke needs" (the original rationale for why this was even deferred).
+4. **Visual snapshot suite** green at 375 / 768 / 1280 for every page — **SSR-mode** baselines (`dx serve --platform server --features server`), 7 routes × 3 viewports = 21 PNGs, 0.08 threshold for cross-chromium drift tolerance, hermetic fixture workdir. PR #11 (M5). Pitfalls 55-60 in `~/.hermes/skills/projects/alps-gui/references/dioxus-0.7-m5-pitfalls.md`.
 5. **No regression** in the existing 184-test suite (`cargo test --workspace`).
 6. **Operator UX validated by Kyle** on the local dev box — does the dashboard surface the right info? Does the new-task form need `--workdir` exposed? Is the cancel button discoverable?
