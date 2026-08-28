@@ -231,7 +231,7 @@ merged or in-review, all backed by verify-script acceptance criteria.
 | M3b (TaskLog) | #6 | Dual-pane polled tails with Pause | ✅ merged |
 | M3c (TaskDiff + cancel) | #7 | `task_diff` server fn + `task_cancel` + `.alps-pids.json` write | ✅ merged |
 | M4-prep (Settings UI shell) | #8 | Settings page UI (Workdir + MINIMAX_API_KEY + About) | ✅ merged |
-| M4-proper (workdir context + persistence) | #9 | Shared `Workdir` context + server-side persistence | 🟡 open |
+| M4-proper (workdir context + persistence) | #9 | Shared `Workdir` context + server-side persistence | ✅ merged |
 | M5 (Playwright e2e + snapshots) | — | Visual snapshots at 375 / 768 / 1280px | ⏳ next |
 
 **Acceptance verification:** `bash scripts/verify-us-007.sh --port <PORT>`
