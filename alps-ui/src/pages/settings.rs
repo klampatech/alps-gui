@@ -35,6 +35,24 @@ use crate::state;
 
 /// Page route handler for `/settings`. M4-proper: the Save button
 /// wires through `set_workdir` server fn + `Workdir` context.
+///
+/// ## v1.1 fix — Settings initial-load race
+///
+/// Before v1.1, this page called `workdir_ctx.get()` once at mount and
+/// bound the result to a local `use_signal`. That meant the input
+/// showed the wasm-side fallback workdir (`~/.alps-runs`) on fresh
+/// loads — because the App-mount `use_future(get_workdir)` resolved
+/// AFTER this component mounted and didn't re-trigger the local
+/// signal. The input briefly displayed the wrong value before the
+/// user clicked Save (or reloaded). Pitfall #56 in
+/// `references/dioxus-0.7-m5-pitfalls.md`.
+///
+/// Fix: derive the input value reactively from the Workdir context
+/// signal. Use an `Option<String>` "draft" signal that captures the
+/// user's unsaved edits — the input reads `draft.unwrap_or(workdir)`,
+/// so the value tracks both the persisted state AND the in-flight edit.
+/// On Save, clear the draft (now the Workdir context is the source of
+/// truth). On server error, keep the draft so the user can retry.
 #[component]
 pub fn Settings() -> Element {
     // Capture the Workdir context once. The Save closure is `move`
@@ -42,35 +60,50 @@ pub fn Settings() -> Element {
     // capture by value (it's `Copy`).
     let workdir_ctx = use_context::<state::Workdir>();
 
-    // Pre-fill the input with the current workdir so the user can
-    // edit + save. This is the same value the server side resolved
-    // on App mount (config file → env var → $HOME fallback).
-    let initial = workdir_ctx.get();
-    let input_value = use_signal::<String>(|| initial);
+    // `workdir_signal` is the reactive read — Dioxus tracks the read
+    // and re-renders this component when the Workdir signal updates
+    // (e.g. after App-mount `use_future(get_workdir)` resolves, or
+    // after this page's Save handler calls `workdir_ctx.set(...)`).
+    let workdir_signal = workdir_ctx.signal();
+
+    // Draft state — captures the user's in-flight edit. `None` means
+    // "show the current persisted workdir". `Some(s)` means "show the
+    // user's edit, even if it differs from the persisted value".
+    // Cleared on successful Save (the Workdir signal updates, which
+    // already reflects the new value) and on user-initiated reload
+    // (back to None).
+    let mut draft = use_signal::<Option<String>>(|| None);
+
     let saved_toast = use_signal::<Option<String>>(|| None);
     let mut saving = use_signal(|| false);
 
     let on_save = move |_| {
-        let val = input_value.read().clone();
+        // Read the displayed value (= draft if set, else current
+        // workdir). On a no-op Save (user didn't edit anything), this
+        // is the persisted value, which is safe to re-POST.
+        let val = draft.read().clone().unwrap_or_else(|| workdir_signal.cloned());
         saving.set(true);
         // Capture mutable refs for the async closure. The closure
         // must be 'move' to take ownership of the values.
         let mut workdir_ctx = workdir_ctx;
         let mut saving = saving;
         let mut saved_toast = saved_toast;
-        let mut input_value = input_value;
+        let mut draft = draft;
         spawn(async move {
             match set_workdir(val.clone()).await {
                 Ok(()) => {
                     // Server-side persistence succeeded — update the
                     // shared context so every page sees the new path.
+                    // The input's reactive read will re-derive to the
+                    // new persisted value, so we can clear the draft.
                     workdir_ctx.set(val.clone());
+                    draft.set(None);
                     saved_toast.set(Some(format!("Saved {val}")));
-                    // Reset the input to the saved value so the
-                    // user's edit is visible.
-                    input_value.set(val);
                 }
                 Err(e) => {
+                    // Keep the draft so the user can retry without
+                    // retyping. The persisted workdir signal is
+                    // unchanged, but the input keeps showing the edit.
                     saved_toast.set(Some(format!("Save failed: {e:?}")));
                 }
             }
@@ -83,8 +116,13 @@ pub fn Settings() -> Element {
             h1 { class: "text-2xl font-semibold text-slate-800", "Settings" }
 
             // Card 1: Workdir (real Save — calls set_workdir server fn).
+            // The WorkdirCard is now pure presentational — the parent
+            // owns the draft state and reads `workdir_signal` reactively.
+            // The `input_value` passed here is computed each render from
+            // the current draft OR the current persisted workdir.
             WorkdirCard {
-                input_value: input_value,
+                input_value: draft.read().clone().unwrap_or_else(|| workdir_signal.cloned()),
+                on_input: move |new: String| draft.set(Some(new)),
                 saving: saving,
                 on_save: on_save,
             }
@@ -103,12 +141,17 @@ pub fn Settings() -> Element {
     }
 }
 
-/// Card 1: Workdir input + Save button. The Save handler is owned by
-/// `Settings` (it needs access to the `Workdir` context + the
-/// `saved_toast` signal).
+/// Card 1: Workdir input + Save button. Pure presentational — all
+/// state lives in the parent `Settings` component.
+///
+/// `input_value` is the current input string (either the user's draft
+/// edit OR the persisted workdir). `on_input` fires on every
+/// keystroke, letting the parent update its draft state. `on_save`
+/// fires when the user clicks Save (the parent calls the server fn).
 #[component]
 fn WorkdirCard(
-    mut input_value: Signal<String>,
+    input_value: String,
+    on_input: EventHandler<String>,
     saving: Signal<bool>,
     on_save: EventHandler<MouseEvent>,
 ) -> Element {
@@ -126,9 +169,9 @@ fn WorkdirCard(
             div { class: "flex gap-2",
                 input {
                     class: "flex-1 rounded border border-slate-300 px-3 py-2 text-sm font-mono text-slate-700",
-                    value: "{input_value.read()}",
+                    value: "{input_value}",
                     disabled: "{is_saving}",
-                    oninput: move |evt| input_value.set(evt.value()),
+                    oninput: move |evt| on_input.call(evt.value()),
                 }
                 button {
                     class: "px-4 py-2 bg-slate-800 text-white text-sm rounded hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed",
