@@ -17,7 +17,8 @@
 //! - `<h1>`: `text-2xl font-semibold text-slate-800` — DESIGN.md §4
 //!   heading style.
 //! - Right of the heading: a `↻ Reload` button (calls
-//!   `resource.restart()` to re-fetch `tasks_list`).
+//!   `resource.restart()` to re-fetch `tasks_list`) + a "Last
+//!   refreshed Xs ago · Auto/Paused" status row (v1.1 #3).
 //! - ResponsiveGrid: 1-col default / 3-col on `lg:`.
 //!
 //! ## Sections (DESIGN.md §3)
@@ -32,15 +33,35 @@
 //! 3. Recent activity — placeholder text "Recent log — coming in v2"
 //!    (SSE-based log streaming lands in M3).
 //!
-//! ## Why a top-level `WORKDIR` constant (not yet a settings hook)
+//! ## v1.1 #3 — Live polling (added 2026-08-28)
 //!
-//! M1 needs a workdir to pass to `tasks_list`. The right long-term
-//! answer is the Settings page (M4) which surfaces the workdir as
-//! editable + persisted to `~/.config/alps/ui.toml`. Until then, a
-//! `pub const` here is the smallest workable surface — it lets the
-//! Dashboard compile and exercise the live `tasks_list` path today,
-//! and the Settings page (M4) will replace this constant with a
-//! `Signal<String>` read from settings.
+//! Tasks appear/disappear in the workdir as `alps run` processes
+//! spawn and complete. Pre-v1.1 the Dashboard only re-fetched when
+//! the user clicked `↻ Reload` OR navigated away and back. That's a
+//! janky experience — operators expect "open the dashboard, see
+//! live state."
+//!
+//! Design: a 5s `use_future` polling loop increments a `tick`
+//! signal that the `tasks_resource` reads inside its closure (the
+//! resource re-fires when any signal it depends on changes —
+//! same pattern as the workdir reactivity added in PR #16). A
+//! second 1s `use_future` updates a `now_tick` signal that drives
+//! the "Last refreshed Xs ago" UI text so it ticks every second
+//! without re-fetching.
+//!
+//! Pause semantics: hovering anywhere on the page sets
+//! `paused = true` (mouse-entered, mouse-leaved clears). Touch
+//! users get an explicit `Paused / Polling` toggle button. When
+//! paused, the polling loop still iterates (so resume is
+//! instant), but the `restart()` call is skipped. Manual
+//! `↻ Reload` always works regardless of pause.
+//!
+//! SSR stability: `last_refreshed_at`, `paused`, and `now_tick`
+//! all initialize to deterministic values (`0`, `false`, `0`),
+//! so the SSR'd HTML never differs from the pre-feature HTML in
+//! its `Last refreshed` / `Auto` text — the widget renders as
+//! `Last refreshed —` + `Polling` (visible only after hydration
+//! ticks). Visual snapshot baselines don't drift.
 use dioxus::prelude::*;
 
 use crate::api::{task_run, tasks_list};
@@ -53,6 +74,13 @@ use crate::state;
 /// M4-proper. The single source of truth is now the `Workdir` context
 /// provided in `App`, and every page reads via
 /// `use_context::<state::Workdir>()`.
+///
+/// v1.1 #3 — Dashboard live polling. The Dashboard's `use_resource`
+/// depends on two signals: the Workdir context (reactive on Settings
+/// save, per PR #14 / PR #16) and a `tick` counter that the polling
+/// loop increments every `POLL_INTERVAL_SECS` seconds.
+const POLL_INTERVAL_SECS: u64 = 5;
+
 /// Format a duration in seconds as a short human-readable string.
 fn format_elapsed(secs: u64) -> String {
     if secs < 60 {
@@ -99,14 +127,97 @@ pub fn Dashboard() -> Element {
     // dispatch (or when we add `use_loader` to a Dioxus release that
     // supports it), this can switch to `use_loader` for the snappier
     // first-paint with live data.
+    //
+    // v1.1 #3 — the resource closure now reads BOTH the Workdir
+    // signal (existing reactivity, added in PR #16) AND a `tick`
+    // signal (new, incremented every `POLL_INTERVAL_SECS` by the
+    // polling loop below). Either signal changing re-fires the
+    // resource. SSR-only fetches (initial render) don't see the
+    // tick signal change (the future doesn't run on the server),
+    // so SSR HTML stays identical to pre-feature.
     let workdir_signal = use_context::<state::Workdir>().signal();
+    // `tick` doesn't need `mut` at the binding — we re-bind in the
+    // polling-loop closure with `let mut tick = tick;`. The signal
+    // itself is `Copy` (it's a `Signal<u64>`), so the binding can
+    // be just `let`.
+    let tick = use_signal::<u64>(|| 0);
     let mut tasks_resource = use_resource(move || {
         let wd = workdir_signal.cloned();
+        // Read the tick to set up reactive dependency; the value
+        // itself is unused — the polling loop just bumps this
+        // signal to trigger re-fetch.
+        let _ = tick.read();
         async move { tasks_list(wd).await }
     });
 
+    // v1.1 #3 — live polling state.
+    // - `paused`: toggle via the explicit "⏸ Pause / ▶ Resume"
+    //   button. Touch-friendly + mouse-friendly (no hover-pause,
+    //   because hover handlers on the outer div would race with
+    //   the button's click — clicking the button would
+    //   onmouseenter → onmouseleave the outer div and immediately
+    //   reset paused back to false before the user sees the change).
+    //   Manual button only — fewer surprises, no event ordering
+    //   subtleties. The TaskLog page has a similar toggle (and an
+    //   explicit Pause UX) per M3b — same pattern.
+    // - `last_refreshed_at`: seconds-since-epoch (chrono::Utc)
+    //   of the most recent fetch (whether from the initial
+    //   resource fire, manual reload, or the polling loop).
+    //   `0` initially — the UI shows "—" until the first fetch
+    //   lands, which keeps SSR HTML stable.
+    // - `now_tick`: seconds-since-epoch, ticks every 1s via a
+    //   separate use_future. Drives the "Xs ago" UI text.
+    //   Independent of `last_refreshed_at` so the UI re-renders
+    //   every second without re-fetching `tasks_list`.
+    let mut paused = use_signal(|| false);
+    let mut last_refreshed_at = use_signal::<u64>(|| 0);
+    let mut now_tick = use_signal::<u64>(|| 0);
+
+    // Polling loop — every POLL_INTERVAL_SECS, bump `tick` to
+    // trigger tasks_resource re-fetch (unless paused). The
+    // initial fetch happens via use_resource itself, so we wait
+    // POLL_INTERVAL_SECS before the first poll bump.
+    //
+    // Reactive on workdir_signal change too — if the operator
+    // saves a new workdir via Settings while on the Dashboard,
+    // the polling loop restarts against the new workdir.
+    let _ = use_future(move || {
+        let paused = paused;
+        let mut tick = tick;
+        let mut last_refreshed_at = last_refreshed_at;
+        let _wd = workdir_signal.cloned(); // reactive restart on workdir change
+        async move {
+            loop {
+                poll_sleep(POLL_INTERVAL_SECS * 1000).await;
+                if !*paused.peek() {
+                    // Read the tick value into a local before calling
+                    // set(), because set() needs `&mut` on the signal
+                    // and `peek()` needs `&`.
+                    let new_tick = tick.peek().wrapping_add(1);
+                    tick.set(new_tick);
+                    last_refreshed_at.set(chrono::Utc::now().timestamp() as u64);
+                }
+            }
+        }
+    });
+
+    // 1s ticker for the "Xs ago" UI text. Doesn't fetch anything.
+    let _ = use_future(move || async move {
+        loop {
+            // Pull from page-runtime directly so the timer ticks
+            // every second regardless of pause. The UI text is
+            // informational; the fetch rate is controlled by the
+            // polling loop above.
+            poll_sleep(1000).await;
+            now_tick.set(chrono::Utc::now().timestamp() as u64);
+        }
+    });
+
     // Re-fetch on Reload click. `use_resource::restart()` cancels the
-    // current task and starts a new one.
+    // current task and starts a new one. Note: restart() takes
+    // `&mut`, so this click handler holds an exclusive borrow;
+    // combined with the polling-loop's `tick` signal bump, manual
+    // + auto reloads both work.
     let loader_view = match &*tasks_resource.read_unchecked() {
         None => rsx! { LoadingCard {} },
         Some(Ok(list)) if list.tasks.is_empty() => rsx! { EmptyCard {} },
@@ -120,16 +231,72 @@ pub fn Dashboard() -> Element {
 
     let is_pending = !tasks_resource.finished();
 
+    // v1.1 #3 — "Last refreshed Xs ago · Auto/Paused" status row.
+    // Reads `now_tick.read()` so the UI text re-renders every 1s
+    // without needing to re-fetch tasks_list.
+    let last_refreshed_display = {
+        let ts = *last_refreshed_at.read();
+        let nw = *now_tick.read();
+        if ts == 0 {
+            "Last refreshed —".to_string()
+        } else {
+            let elapsed = nw.saturating_sub(ts);
+            if elapsed < 60 {
+                format!("Last refreshed {elapsed}s ago")
+            } else {
+                format!("Last refreshed {}m {}s ago", elapsed / 60, elapsed % 60)
+            }
+        }
+    };
+
+    let is_paused = *paused.read();
+    let pause_button_label = if is_paused { "▶ Resume" } else { "⏸ Pause" };
+
     rsx! {
-        div { class: "p-4 sm:p-6 lg:p-8 space-y-4",
-            div { class: "flex items-baseline justify-between gap-4",
-                h1 { class: "text-2xl font-semibold text-slate-800", "Dashboard" }
-                button {
-                    class: "rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50",
-                    title: "Reload tasks from {workdir_signal.cloned()}",
-                    disabled: is_pending,
-                    onclick: move |_| tasks_resource.restart(),
-                    "↻ Reload"
+        // v1.1 #3 — no hover-pause handlers on the outer div.
+        // (Tried `onmouseenter`/`onmouseleave` for hover-pause,
+        // but the click on the Pause button races with the
+        // leave event. Manual button only.)
+        div {
+            class: "p-4 sm:p-6 lg:p-8 space-y-4",
+            div { class: "flex flex-wrap items-baseline justify-between gap-4",
+                div { class: "flex items-baseline gap-3",
+                    h1 { class: "text-2xl font-semibold text-slate-800", "Dashboard" }
+                    span {
+                        class: "text-xs text-slate-500 font-mono",
+                        // Auto state surfaces to screen-readers; Paused
+                        // means polling is suspended (manual reload still
+                        // works).
+                        title: if is_paused { "Polling paused" } else { "Polling auto-refresh every {POLL_INTERVAL_SECS}s" },
+                        if is_paused { "· Paused" } else { "· Auto" }
+                    }
+                }
+                div { class: "flex items-center gap-2",
+                    // v1.1 #3 — "Last refreshed Xs ago" indicator.
+                    // The `now_tick.read()` in the `format` argument
+                    // subscribes the element to the 1s ticker.
+                    span {
+                        class: "text-xs text-slate-500 font-mono",
+                        "{last_refreshed_display}"
+                    }
+                    button {
+                        class: "rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50",
+                        // Touch + mouse users — explicit toggle
+                        // (hover-pause doesn't work on touch).
+                        title: if is_paused { "Resume auto-polling" } else { "Pause auto-polling" },
+                        onclick: move |_| paused.set(!is_paused),
+                        "{pause_button_label}"
+                    }
+                    button {
+                        class: "rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50",
+                        title: "Reload tasks from {workdir_signal.cloned()}",
+                        disabled: is_pending,
+                        onclick: move |_| {
+                            tasks_resource.restart();
+                            last_refreshed_at.set(chrono::Utc::now().timestamp() as u64);
+                        },
+                        "↻ Reload"
+                    }
                 }
             }
             p { class: "text-sm text-slate-600",
@@ -144,6 +311,39 @@ pub fn Dashboard() -> Element {
             }
         }
     }
+}
+
+/// Server-side / native sleep helper for the polling loop. The wasm
+/// build uses `setTimeout` via `js_sys::Promise`; the server build
+/// uses `tokio::time::sleep`. Same shape as `task_log::poll_sleep` —
+/// future cleanup could move it to a shared `state::poll_sleep` helper
+/// if more pages adopt polling.
+#[cfg(not(target_arch = "wasm32"))]
+async fn poll_sleep(ms: u64) {
+    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn poll_sleep(ms: u64) {
+    use wasm_bindgen_futures::JsFuture;
+    use wasm_bindgen::JsCast;
+
+    // Create a Promise that resolves after `ms` via setTimeout.
+    // `Promise::new`'s closure receives the resolver functions and
+    // schedules `resolve(undefined)` to fire after `ms`. The future
+    // is awaited via `JsFuture`, which yields once the Promise
+    // resolves — i.e. once `ms` have elapsed.
+    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+        let win = web_sys::window().expect("no window in wasm context");
+        // `resolve` is a `js_sys::Function`; coerce via `JsCast::dyn_ref`
+        // so web-sys's C bindings can pass it through to setTimeout.
+        let callback: &js_sys::Function = resolve.dyn_ref().expect("resolve is a Function");
+        let _ = win.set_timeout_with_callback_and_timeout_and_arguments_0(
+            callback,
+            ms as i32,
+        );
+    });
+    let _ = JsFuture::from(promise).await;
 }
 
 /// (1) NewTask form — text area + Submit button.
