@@ -1,2 +1,557 @@
+/* main.css — Control Rail palette + dark base + IBM Plex fonts.
+ *
+ * The pre-built Tailwind utility classes from the original main.css
+ * (one giant line below the header comment) are PRESERVED so existing
+ * class-based styles keep working. NEW dark-palette tokens are added
+ * at the bottom of this file as CSS custom properties + utility classes.
+ *
+ * For NEW palette colors that aren't already in the pre-built
+ * utilities, the rsx! markup uses Tailwind's arbitrary-value syntax
+ * (e.g. `bg-[#e8a23d]`, `text-[#eef0f4]`) which works WITHOUT a
+ * Tailwind rebuild. This is the recommended pattern from
+ * `references/dioxus-0.7-m4-pitfalls.md` Pitfall 44.
+ */
 *,:after,:before{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }
 /*! tailwindcss v3.4.17 | MIT License | https://tailwindcss.com*/*,:after,:before{border:0 solid #e5e7eb;box-sizing:border-box}:after,:before{--tw-content:""}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;font-family:ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji;font-feature-settings:normal;font-variation-settings:normal;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-tap-highlight-color:transparent}body{line-height:inherit;margin:0}hr{border-top-width:1px;color:inherit;height:0}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation Mono,Courier New,monospace;font-feature-settings:normal;font-size:1em;font-variation-settings:normal}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{border-collapse:collapse;border-color:inherit;text-indent:0}button,input,optgroup,select,textarea{color:inherit;font-family:inherit;font-feature-settings:inherit;font-size:100%;font-variation-settings:inherit;font-weight:inherit;letter-spacing:inherit;line-height:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0}fieldset,legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::-moz-placeholder,textarea::-moz-placeholder{color:#9ca3af;opacity:1}input::placeholder,textarea::placeholder{color:#9ca3af;opacity:1}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{height:auto;max-width:100%}[hidden]:where(:not([hidden=until-found])){display:none}.container{width:100%}@media (min-width:640px){.container{max-width:640px}}@media (min-width:768px){.container{max-width:768px}}@media (min-width:1024px){.container{max-width:1024px}}@media (min-width:1280px){.container{max-width:1280px}}@media (min-width:1536px){.container{max-width:1536px}}.visible{visibility:visible}.invisible{visibility:hidden}.static{position:static}.sticky{position:sticky}.top-0{top:0}.z-10{z-index:10}.col-span-2{grid-column:span 2/span 2}.mt-1{margin-top:.25rem}.block{display:block}.inline{display:inline}.flex{display:flex}.inline-flex{display:inline-flex}.table{display:table}.grid{display:grid}.hidden{display:none}.h-1\.5{height:.375rem}.min-h-screen{min-height:100vh}.w-1\.5{width:.375rem}.w-full{width:100%}.flex-1{flex:1 1 0%}.grow{flex-grow:1}.grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.flex-col{flex-direction:column}.items-start{align-items:flex-start}.items-center{align-items:center}.items-baseline{align-items:baseline}.justify-end{justify-content:flex-end}.justify-center{justify-content:center}.justify-between{justify-content:space-between}.gap-2{gap:.5rem}.gap-3{gap:.75rem}.gap-4{gap:1rem}.space-y-1>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-bottom:calc(.25rem*var(--tw-space-y-reverse));margin-top:calc(.25rem*(1 - var(--tw-space-y-reverse)))}.space-y-2>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-bottom:calc(.5rem*var(--tw-space-y-reverse));margin-top:calc(.5rem*(1 - var(--tw-space-y-reverse)))}.space-y-3>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-bottom:calc(.75rem*var(--tw-space-y-reverse));margin-top:calc(.75rem*(1 - var(--tw-space-y-reverse)))}.space-y-4>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-bottom:calc(1rem*var(--tw-space-y-reverse));margin-top:calc(1rem*(1 - var(--tw-space-y-reverse)))}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.whitespace-pre-wrap{white-space:pre-wrap}.rounded-full{border-radius:9999px}.rounded-lg{border-radius:.5rem}.rounded-md{border-radius:.375rem}.border{border-width:1px}.border-b{border-bottom-width:1px}.border-slate-200{--tw-border-opacity:1;border-color:rgb(226 232 240/var(--tw-border-opacity,1))}.border-slate-300{--tw-border-opacity:1;border-color:rgb(203 213 225/var(--tw-border-opacity,1))}.bg-amber-500{--tw-bg-opacity:1;background-color:rgb(245 158 11/var(--tw-bg-opacity,1))}.bg-emerald-500{--tw-bg-opacity:1;background-color:rgb(16 185 129/var(--tw-bg-opacity,1))}.bg-orange-500{--tw-bg-opacity:1;background-color:rgb(249 115 22/var(--tw-bg-opacity,1))}.bg-rose-500{--tw-bg-opacity:1;background-color:rgb(244 63 94/var(--tw-bg-opacity,1))}.bg-rose-700{--tw-bg-opacity:1;background-color:rgb(190 18 60/var(--tw-bg-opacity,1))}.bg-slate-400{--tw-bg-opacity:1;background-color:rgb(148 163 184/var(--tw-bg-opacity,1))}.bg-slate-50{--tw-bg-opacity:1;background-color:rgb(248 250 252/var(--tw-bg-opacity,1))}.bg-slate-800{--tw-bg-opacity:1;background-color:rgb(30 41 59/var(--tw-bg-opacity,1))}.bg-white{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}.p-2{padding:.5rem}.p-4{padding:1rem}.px-2\.5{padding-left:.625rem;padding-right:.625rem}.px-3{padding-left:.75rem;padding-right:.75rem}.py-0\.5{padding-bottom:.125rem;padding-top:.125rem}.py-1\.5{padding-bottom:.375rem;padding-top:.375rem}.py-2{padding-bottom:.5rem;padding-top:.5rem}.font-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation Mono,Courier New,monospace}.text-2xl{font-size:1.5rem;line-height:2rem}.text-base{font-size:1rem;line-height:1.5rem}.text-lg{font-size:1.125rem;line-height:1.75rem}.text-sm{font-size:.875rem;line-height:1.25rem}.text-xs{font-size:.75rem;line-height:1rem}.font-medium{font-weight:500}.font-semibold{font-weight:600}.uppercase{text-transform:uppercase}.italic{font-style:italic}.leading-none{line-height:1}.tracking-wide{letter-spacing:.025em}.text-emerald-500{--tw-text-opacity:1;color:rgb(16 185 129/var(--tw-text-opacity,1))}.text-rose-500{--tw-text-opacity:1;color:rgb(244 63 94/var(--tw-text-opacity,1))}.text-slate-300{--tw-text-opacity:1;color:rgb(203 213 225/var(--tw-text-opacity,1))}.text-slate-500{--tw-text-opacity:1;color:rgb(100 116 139/var(--tw-text-opacity,1))}.text-slate-600{--tw-text-opacity:1;color:rgb(71 85 105/var(--tw-text-opacity,1))}.text-slate-700{--tw-text-opacity:1;color:rgb(51 65 85/var(--tw-text-opacity,1))}.text-slate-800{--tw-text-opacity:1;color:rgb(30 41 59/var(--tw-text-opacity,1))}.text-white{--tw-text-opacity:1;color:rgb(255 255 255/var(--tw-text-opacity,1))}.shadow-sm{--tw-shadow:0 1px 2px 0 rgba(0,0,0,.05);--tw-shadow-colored:0 1px 2px 0 var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow,0 0 #0000),var(--tw-ring-shadow,0 0 #0000),var(--tw-shadow)}.hover\:bg-slate-100:hover{--tw-bg-opacity:1;background-color:rgb(241 245 249/var(--tw-bg-opacity,1))}.hover\:bg-slate-700:hover{--tw-bg-opacity:1;background-color:rgb(51 65 85/var(--tw-bg-opacity,1))}.hover\:text-slate-900:hover{--tw-text-opacity:1;color:rgb(15 23 42/var(--tw-text-opacity,1))}.focus\:border-slate-500:focus{--tw-border-opacity:1;border-color:rgb(100 116 139/var(--tw-border-opacity,1))}.focus\:outline-none:focus{outline:2px solid transparent;outline-offset:2px}.focus\:ring-1:focus{--tw-ring-offset-shadow:var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);--tw-ring-shadow:var(--tw-ring-inset) 0 0 0 calc(1px + var(--tw-ring-offset-width)) var(--tw-ring-color);box-shadow:var(--tw-ring-offset-shadow),var(--tw-ring-shadow),var(--tw-shadow,0 0 #0000)}.focus\:ring-slate-500:focus{--tw-ring-opacity:1;--tw-ring-color:rgb(100 116 139/var(--tw-ring-opacity,1))}@media (min-width:640px){.sm\:flex{display:flex}.sm\:hidden{display:none}.sm\:p-6{padding:1.5rem}}@media (min-width:1024px){.lg\:col-span-2{grid-column:span 2/span 2}.lg\:grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.lg\:p-8{padding:2rem}}
+/* ──────────────────────────────────────────────────────────────────────
+ * Control Rail design system — dark palette + IBM Plex fonts
+ *
+ * Palette tokens (per docs/alps-gui-redesign-deck.html §01):
+ *   --ink:#12151b        page background
+ *   --panel:#1a1e27      panel surface
+ *   --panel2:#20242f     raised card surface
+ *   --hair:#343a48       hairline border
+ *   --hair-soft:#262b37  soft border (dashed, low-contrast)
+ *   --text:#eef0f4       primary text
+ *   --dim:#9099ad        secondary text
+ *   --faint:#5c6478      tertiary text
+ *   --amber:#e8a23d      running signal
+ *   --amber-dim:#4a3a1f  running pill background
+ *   --amber-glow:rgba(232,162,61,.35)
+ *   --teal:#3fb88f       done signal
+ *   --teal-dim:#1c3f34   done pill background
+ *   --red:#e15a4f        failed signal
+ *   --red-dim:#4a2622    failed pill background
+ *   --violet:#8f92e0     planned signal
+ *   --violet-dim:#2b2c50 planned pill background
+ *   --gray:#6b7284       idle signal
+ *   --gray-dim:#262b37   idle pill background
+ *   --mono:'IBM Plex Mono', ui-monospace, monospace
+ *   --sans:'IBM Plex Sans', Inter, sans-serif
+ * ────────────────────────────────────────────────────────────────────── */
+
+:root{
+  --ink:#12151b;
+  --panel:#1a1e27;
+  --panel2:#20242f;
+  --hair:#343a48;
+  --hair-soft:#262b37;
+  --text:#eef0f4;
+  --dim:#9099ad;
+  --faint:#5c6478;
+  --amber:#e8a23d;
+  --amber-dim:#4a3a1f;
+  --amber-glow:rgba(232,162,61,.35);
+  --teal:#3fb88f;
+  --teal-dim:#1c3f34;
+  --red:#e15a4f;
+  --red-dim:#4a2622;
+  --violet:#8f92e0;
+  --violet-dim:#2b2c50;
+  --gray:#6b7284;
+  --gray-dim:#262b37;
+  --mono:'IBM Plex Mono', ui-monospace, monospace;
+  --sans:'IBM Plex Sans', Inter, sans-serif;
+}
+
+html, body{
+  background:var(--ink);
+  color:var(--text);
+  font-family:var(--sans);
+  margin:0;
+}
+
+body{
+  min-height:100vh;
+}
+
+/* Default font families — applied via utility fallback if a component
+ * forgets to set `font-mono`. The `--mono` and `--sans` CSS vars
+ * are what the design deck uses. */
+.font-mono{
+  font-family:var(--mono);
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * StatusPill (deck §01) — dim bg + colored text + leading dot
+ *
+ * Replaces the pre-redesign solid-color pills. Six styles (Idle /
+ * Planned / Running / Done / Failed / Rejected). Rejected uses a
+ * transparent bg + red border so it reads as "this was sent back"
+ * rather than "this crashed".
+ * ────────────────────────────────────────────────────────────────────── */
+
+.pill{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-family:var(--mono);
+  font-size:11px;
+  letter-spacing:.03em;
+  padding:4px 10px 4px 8px;
+  border-radius:20px;
+  white-space:nowrap;
+}
+.pill .dot{
+  width:6px;
+  height:6px;
+  border-radius:50%;
+}
+.pill-idle{background:var(--gray-dim);color:var(--dim);}
+.pill-idle .dot{background:var(--gray);}
+.pill-planned{background:var(--violet-dim);color:var(--violet);}
+.pill-planned .dot{background:var(--violet);}
+.pill-running{background:var(--amber-dim);color:var(--amber);}
+.pill-running .dot{background:var(--amber);}
+.pill-done{background:var(--teal-dim);color:var(--teal);}
+.pill-done .dot{background:var(--teal);}
+.pill-failed{background:var(--red-dim);color:var(--red);}
+.pill-failed .dot{background:var(--red);}
+.pill-rejected{background:transparent;color:var(--red);border:1px solid var(--red);}
+.pill-rejected .dot{background:var(--red);}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Rail (deck §00) — 5 nodes (Plan/Implement/Review/Judge/Done) with
+ * bar connectors. Two variants:
+ *   .rail-full   — full-width header variant (TaskDetail)
+ *   .rail-mini   — 5-bar mini variant (Dashboard task cards)
+ *
+ * Active node has amber glow + amber text; done nodes + filled lines
+ * are teal; pending are faint gray.
+ * ────────────────────────────────────────────────────────────────────── */
+
+.rail-full{
+  display:flex;
+  align-items:center;
+  gap:0;
+  width:100%;
+}
+.rail-full .rail-node{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:10px;
+  position:relative;
+  flex:0 0 auto;
+  width:140px;
+}
+.rail-full .rail-dot{
+  width:16px;
+  height:16px;
+  border-radius:50%;
+  background:var(--gray-dim);
+  border:2px solid var(--hair);
+  z-index:1;
+}
+.rail-full .rail-node.done .rail-dot{background:var(--teal);border-color:var(--teal);}
+.rail-full .rail-node.active .rail-dot{
+  background:var(--amber);
+  border-color:var(--amber);
+  box-shadow:0 0 0 6px var(--amber-glow);
+}
+.rail-full .rail-label{
+  font-family:var(--mono);
+  font-size:12px;
+  color:var(--faint);
+  letter-spacing:.03em;
+}
+.rail-full .rail-node.done .rail-label{color:var(--teal);}
+.rail-full .rail-node.active .rail-label{color:var(--amber);}
+.rail-full .rail-line{
+  flex:1;
+  height:2px;
+  background:var(--hair);
+  margin:0 -8px 24px;
+  min-width:20px;
+}
+.rail-full .rail-line.filled{background:var(--teal);}
+
+.rail-mini{
+  display:flex;
+  align-items:center;
+  gap:3px;
+  margin-bottom:12px;
+}
+.rail-mini i{
+  flex:1;
+  height:3px;
+  border-radius:2px;
+  background:var(--hair-soft);
+  display:block;
+}
+.rail-mini i.on{background:var(--amber);}
+.rail-mini i.past{background:var(--teal);}
+.rail-mini i.fail{background:var(--red);}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Card / chrome (deck §02–§05) — panel2 background + hair border +
+ * 12px radius. This is the canonical surface for every card on every
+ * page. Tailwind's `bg-[#20242f]` + `border-[#343a48]` do the same
+ * thing but the class below documents the intent.
+ * ────────────────────────────────────────────────────────────────────── */
+
+.surface{background:var(--panel2);border:1px solid var(--hair);border-radius:12px;}
+.surface-soft{background:var(--panel);border:1px solid var(--hair);border-radius:12px;}
+
+/* Buttons (deck §02) — three variants: amber primary, ghost neutral,
+ * red danger. Used on Dashboard (Run task), Settings (Save), and
+ * TaskDetail (Cancel). */
+.btn-amber{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-family:var(--mono);
+  font-size:12px;
+  font-weight:500;
+  border-radius:8px;
+  padding:9px 14px;
+  background:var(--amber);
+  color:#241a06;
+  border:1px solid transparent;
+  cursor:pointer;
+}
+.btn-amber:hover{filter:brightness(1.08);}
+.btn-amber:disabled{opacity:.5;cursor:not-allowed;}
+.btn-ghost{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-family:var(--mono);
+  font-size:12px;
+  font-weight:500;
+  border-radius:8px;
+  padding:9px 14px;
+  background:transparent;
+  border:1px solid var(--hair-soft);
+  color:var(--dim);
+  cursor:pointer;
+}
+.btn-ghost:hover{color:var(--text);border-color:var(--hair);}
+.btn-ghost:disabled{opacity:.5;cursor:not-allowed;}
+.btn-danger{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-family:var(--mono);
+  font-size:12px;
+  font-weight:500;
+  border-radius:8px;
+  padding:7px 12px;
+  background:transparent;
+  border:1px solid var(--red);
+  color:var(--red);
+  cursor:pointer;
+}
+.btn-danger:hover{background:var(--red-dim);}
+.btn-danger:disabled{opacity:.5;cursor:not-allowed;}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * TaskDetail specific (deck §03)
+ *   .prompt-block — left-amber stripe + ink-bg block for the prompt
+ *   .chip         — small mono metadata chip
+ *   .accordion    — full-rail-variant container with head/body sections
+ * ────────────────────────────────────────────────────────────────────── */
+
+.prompt-block{
+  background:var(--ink);
+  border-left:2px solid var(--amber);
+  border-radius:0 8px 8px 0;
+  padding:14px 18px;
+  font-size:13px;
+  color:var(--dim);
+  line-height:1.55;
+}
+.chip{
+  font-family:var(--mono);
+  font-size:11px;
+  color:var(--faint);
+  background:var(--panel2);
+  border:1px solid var(--hair-soft);
+  border-radius:6px;
+  padding:5px 10px;
+}
+
+.accordion{
+  border:1px solid var(--hair);
+  border-radius:12px;
+  overflow:hidden;
+  margin-bottom:14px;
+  background:var(--panel);
+}
+.accordion-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:14px 18px;
+  background:var(--panel2);
+  font-family:var(--mono);
+  font-size:12.5px;
+  font-weight:500;
+  cursor:pointer;
+  user-select:none;
+  color:var(--text);
+}
+.accordion-head .chev{
+  color:var(--faint);
+  font-size:11px;
+}
+.accordion-body{
+  padding:18px 20px;
+  background:var(--panel);
+  border-top:1px solid var(--hair);
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * TaskLog (deck §04) — log pane toolbar + filter + color-coded log lines
+ * ────────────────────────────────────────────────────────────────────── */
+
+.log-pane{
+  background:var(--panel2);
+  border:1px solid var(--hair);
+  border-radius:12px;
+  overflow:hidden;
+}
+.log-toolbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  padding:10px 14px;
+  border-bottom:1px solid var(--hair);
+}
+.log-path{
+  font-family:var(--mono);
+  font-size:10.5px;
+  color:var(--faint);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  flex:1;
+  min-width:0;
+}
+.log-switch{
+  width:28px;
+  height:16px;
+  border-radius:9px;
+  background:var(--teal-dim);
+  position:relative;
+  flex:0 0 auto;
+}
+.log-switch::after{
+  content:"";
+  position:absolute;
+  top:2px;
+  left:14px;
+  width:12px;
+  height:12px;
+  border-radius:50%;
+  background:var(--teal);
+}
+.log-switch-off{
+  width:28px;
+  height:16px;
+  border-radius:9px;
+  background:var(--hair-soft);
+  position:relative;
+  flex:0 0 auto;
+}
+.log-switch-off::after{
+  content:"";
+  position:absolute;
+  top:2px;
+  left:2px;
+  width:12px;
+  height:12px;
+  border-radius:50%;
+  background:var(--faint);
+}
+.log-filter{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:8px 14px;
+  font-family:var(--mono);
+  font-size:10.5px;
+  color:var(--faint);
+  background:var(--ink);
+  border-bottom:1px solid var(--hair-soft);
+  gap:10px;
+}
+.log-filter input{
+  background:transparent;
+  border:none;
+  color:var(--dim);
+  font-family:var(--mono);
+  font-size:10.5px;
+  width:140px;
+  outline:none;
+}
+.log-filter input::placeholder{color:var(--faint);}
+.log-lines{
+  padding:12px 14px;
+  font-family:var(--mono);
+  font-size:11px;
+  line-height:1.85;
+  color:var(--dim);
+  max-height:40vh;
+  overflow-y:auto;
+  background:var(--ink);
+}
+.log-lines .lv-info{color:var(--dim);}
+.log-lines .lv-warn{color:var(--amber);}
+.log-lines .lv-ok{color:var(--teal);}
+.log-lines .lv-err{color:var(--red);}
+.log-lines .ts{color:var(--faint);}
+
+/* Log line classification — promotes a line based on substring match.
+ * The TaskLog component assigns the level by inspecting line.text for
+ * "warn", "error", "ok", "pass" tokens. */
+.log-lines > div{display:block;}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * TaskDiff (deck §05) — commit rows + accordion bodies + empty state
+ * ────────────────────────────────────────────────────────────────────── */
+
+.diff-banner{
+  font-family:var(--mono);
+  font-size:11px;
+  color:var(--faint);
+  background:var(--panel2);
+  border:1px solid var(--hair-soft);
+  border-radius:8px;
+  padding:9px 14px;
+  margin-bottom:14px;
+}
+.commit-row{
+  display:flex;
+  gap:14px;
+  align-items:center;
+  padding:10px 16px;
+  border:1px solid var(--hair);
+  border-radius:10px;
+  margin-bottom:8px;
+  font-family:var(--mono);
+  font-size:11.5px;
+  background:var(--panel2);
+}
+.commit-sha{color:var(--amber);}
+.commit-meta{color:var(--faint);}
+.commit-subject{
+  color:var(--text);
+  font-family:var(--sans);
+  flex:1;
+  font-size:12.5px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.diff-block{
+  background:var(--ink);
+  border:1px solid var(--hair);
+  border-radius:10px;
+  padding:14px 16px;
+  font-family:var(--mono);
+  font-size:11.5px;
+  line-height:1.8;
+  margin:10px 0 18px 0;
+  overflow-x:auto;
+}
+.diff-block .add{color:var(--teal);background:var(--teal-dim);display:block;padding:0 6px;border-radius:3px;}
+.diff-block .rem{color:var(--red);background:var(--red-dim);display:block;padding:0 6px;border-radius:3px;}
+.diff-block .ctx{color:var(--faint);display:block;padding:0 6px;}
+
+.empty-callout{
+  margin-top:20px;
+  background:var(--panel2);
+  border:1px dashed var(--hair-soft);
+  border-radius:10px;
+  padding:16px 18px;
+  font-size:12.5px;
+  color:var(--faint);
+}
+.empty-callout b{
+  color:var(--dim);
+  font-family:var(--mono);
+  font-size:11px;
+  display:block;
+  margin-bottom:6px;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Settings (deck §06) — toast banner
+ * ────────────────────────────────────────────────────────────────────── */
+
+.toast-ok{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  background:var(--teal-dim);
+  border:1px solid var(--teal);
+  color:var(--teal);
+  border-radius:8px;
+  padding:11px 16px;
+  font-family:var(--mono);
+  font-size:12px;
+}
+.toast-err{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  background:var(--red-dim);
+  border:1px solid var(--red);
+  color:var(--red);
+  border-radius:8px;
+  padding:11px 16px;
+  font-family:var(--mono);
+  font-size:12px;
+}
+
+.status-line{
+  display:flex;
+  justify-content:space-between;
+  font-size:12px;
+  color:var(--dim);
+  padding:5px 0;
+  border-bottom:1px solid var(--hair-soft);
+}
+.status-line:last-child{border-bottom:none;}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * NotFound + dashboard empty/error cards
+ * ────────────────────────────────────────────────────────────────────── */
+
+.notfound{
+  text-align:center;
+  padding:64px 24px;
+  color:var(--dim);
+}
+.notfound .nf-code{
+  font-family:var(--mono);
+  font-size:48px;
+  color:var(--faint);
+  margin:0 0 8px 0;
+}
+.notfound .nf-path{
+  font-family:var(--mono);
+  font-size:13px;
+  color:var(--amber);
+  margin:0 0 24px 0;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Mono + sans shorthand — applied via `.alps-mono` / `.alps-sans`
+ * for cases where Tailwind's font-mono isn't loaded in this build.
+ * ────────────────────────────────────────────────────────────────────── */
+
+.alps-mono{font-family:var(--mono);}
+.alps-sans{font-family:var(--sans);}

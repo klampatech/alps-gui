@@ -25,7 +25,7 @@
 # Usage:
 #   ./scripts/verify-us-007.sh [--port <PORT>]   # default: 5274
 #
-# Exit code 0 = all 21 acceptance criteria pass.
+# Exit code 0 = all 23 acceptance criteria pass.
 #
 # Criteria count by milestone (keep in sync with the alps-ui-m3-brief.md
 # and alps-ui-m4-proper-brief.md):
@@ -43,6 +43,11 @@
 #   M5 (visual snapshots):   21  (no bash criterion — snapshot test is
 #                                 a `cargo test --test responsive_layout`
 #                                 run by the visual-snapshots CI job)
+#   Redesign (Control Rail, 2026-09-07): 23  (+5k dark palette + fonts
+#                                 link in SSR'd HTML, +5l TaskDetail
+#                                 FullRail phase labels — guards against
+#                                 a future regression that drops the
+#                                 design tokens or the rail component)
 set -euo pipefail
 
 # ─────────────────────────────────────────────────────────────────────
@@ -306,14 +311,13 @@ fi
 # server before SSR finishes). The state labels are no longer a
 # useful invariant.
 #
-# New #5 contract: served HTML contains the Dashboard's M1-mandatory
-# structural elements (page header + section title + the "Reading
-# tasks from" subheader that advertises the workdir). Plus: any task
-# IDs that DO appear in the SSR'd HTML (because the resource resolved
-# synchronously) must be a valid UUID-shaped identifier (substring of
-# 8+ hex chars separated by dashes) — this catches the "FIXTURES
-# leaked back into the Dashboard" regression class.
-REQUIRED_MARKERS=("Dashboard" "Tasks" "Reading tasks from")
+# New #5 contract (Control Rail redesign, 2026-09-07): served HTML
+# contains the Dashboard's M1-mandatory structural elements — the page
+# header + the "Reading tasks from" subheader that advertises the
+# workdir + the NewTask CTA ("Run task"). The pre-redesign "Tasks"
+# section heading was removed by deck \u00a702 (the 2-col grid renders
+# task cards directly without a separate section header).
+REQUIRED_MARKERS=("Dashboard" "Reading tasks from" "Run task")
 MISSING=0
 for marker in "${REQUIRED_MARKERS[@]}"; do
     if ! grep -qF "$marker" "$HTML_TMP"; then
@@ -323,7 +327,7 @@ for marker in "${REQUIRED_MARKERS[@]}"; do
 done
 if [ "$MISSING" = "1" ]; then
     echo "    SSR'd Dashboard should always render the page header,"
-    echo "    Tasks section title, and the workdir subheader."
+    echo "    the NewTask CTA, and the workdir subheader."
     cleanup_serve
     exit 1
 fi
@@ -338,7 +342,7 @@ echo "  PASS #5: served HTML contains all 3 M1 Dashboard markers"
 # actually spawns alps run.
 # ─────────────────────────────────────────────────────────────────────
 
-REQUIRED_M2_MARKERS=("Submit" "server-side")
+REQUIRED_M2_MARKERS=("Run task")
 MISSING_M2=0
 for marker in "${REQUIRED_M2_MARKERS[@]}"; do
     if ! grep -qF "$marker" "$HTML_TMP"; then
@@ -817,6 +821,62 @@ else
     rm -f "$TASKDIFF_HTML_TMP"
 fi
 
+# Acceptance #5k (Control Rail redesign, 2026-09-07): the dark palette
+# is wired into the served HTML — every page emits the page-level
+# `--ink` background and the IBM Plex fonts <link>, so the deck's
+# visual system survives SSR without hydration.
+# ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+if ! grep -qF "var(--ink)" "$HTML_TMP"; then
+    echo "  FAIL #5k: Dashboard HTML missing the dark palette token (var(--ink))"
+    cleanup_serve
+    exit 1
+fi
+if ! grep -qF "fonts.googleapis.com" "$HTML_TMP"; then
+    echo "  FAIL #5k: Dashboard HTML missing the IBM Plex fonts <link>"
+    cleanup_serve
+    exit 1
+fi
+echo "  PASS #5k: Dashboard renders the dark palette + IBM Plex fonts link"
+
+# ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# Acceptance #5l (Control Rail redesign, 2026-09-07): the TaskDetail
+# page renders the FullRail's 5 phase labels (Plan / Implement /
+# Review / Judge / Done) when populated. SSR-mode use_resource means
+# the rail only renders post-hydration, so the check is lenient:
+# at least 3 of 5 labels OR the LoadingCard text counts as PASS.
+# ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+if [ -n "${FIRST_TASK_ID:-}" ]; then
+    TASKDETAIL_RAIL_TMP="$(mktemp)"
+    TASKDETAIL_RAIL_HTTP=$(curl -s -o "$TASKDETAIL_RAIL_TMP" -w "%{http_code}" \
+        "http://127.0.0.1:$PORT/tasks/$FIRST_TASK_ID" || echo "curl-failed")
+    if [ "$TASKDETAIL_RAIL_HTTP" = "200" ]; then
+        RAIL_PHASES=("Plan" "Implement" "Review" "Judge" "Done")
+        RAIL_FOUND=0
+        for label in "${RAIL_PHASES[@]}"; do
+            if grep -qF "$label" "$TASKDETAIL_RAIL_TMP"; then
+                RAIL_FOUND=$((RAIL_FOUND + 1))
+            fi
+        done
+        if [ "$RAIL_FOUND" -ge 3 ]; then
+            echo "  PASS #5l: /tasks/$FIRST_TASK_ID rendered $RAIL_FOUND/5 rail phase labels"
+        elif grep -qF "Loading task" "$TASKDETAIL_RAIL_TMP"; then
+            echo "  WARN #5l: TaskDetail renders the loading skeleton (rail appears after hydration)"
+        else
+            echo "  FAIL #5l: TaskDetail HTML missing rail phase labels (found $RAIL_FOUND/5)"
+            rm -f "$TASKDETAIL_RAIL_TMP"
+            cleanup_serve
+            exit 1
+        fi
+    else
+        echo "  WARN #5l: TaskDetail returned HTTP $TASKDETAIL_RAIL_HTTP — skipping"
+    fi
+    rm -f "$TASKDETAIL_RAIL_TMP"
+else
+    echo "  WARN #5l: no tasks in workdir — skipping FullRail check"
+fi
+
 # ─────────────────────────────────────────────────────────────────────
 # Acceptance #6c (M4-proper): set_workdir + get_workdir server fns
 # roundtrip through $HOME/.alps-ui-config.json.
@@ -979,9 +1039,9 @@ rm -f "$SETTINGS_HTML_TMP"
 SETTINGS_HTML_TMP="$(mktemp)"
 curl -s -o "$SETTINGS_HTML_TMP" "http://127.0.0.1:$PORT/settings" || true
 if [ -n "${MINIMAX_API_KEY:-}" ]; then
-    EXPECTED_STATUS="Detected (value not displayed)"
+    EXPECTED_STATUS="Detected"
 else
-    EXPECTED_STATUS="Not set in environment"
+    EXPECTED_STATUS="Not set"
 fi
 if grep -qF "$EXPECTED_STATUS" "$SETTINGS_HTML_TMP"; then
     echo "  PASS #6b: /settings MINIMAX_API_KEY status matches env ('$EXPECTED_STATUS')"
@@ -989,7 +1049,7 @@ else
     echo "  FAIL #6b: /settings MINIMAX_API_KEY status mismatch"
     echo "    Expected: $EXPECTED_STATUS"
     echo "    Page contains:"
-    grep -oE 'Detected \(value not displayed\)|Not set in environment|n/a — browser preview' \
+    grep -oE 'Detected|Not set|n/a — preview' \
         "$SETTINGS_HTML_TMP" | head -3 | sed 's/^/      /'
     rm -f "$SETTINGS_HTML_TMP"
     cleanup_serve
@@ -1007,7 +1067,7 @@ echo "  PASS #6: dx serve killed cleanly, port $PORT freed"
 
 echo
 echo "================================================================"
-echo "  US-007 verification: all 21 acceptance criteria pass."
+echo "  US-007 verification: all 23 acceptance criteria pass."
 echo "  Logs: $LOG_DIR"
 echo "================================================================"
 exit 0

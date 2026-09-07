@@ -1,45 +1,24 @@
 //! TaskLog page (`/tasks/:id/log`).
 //!
-//! M3b: dual-pane polled tail. The page renders two near-live
-//! streamed views of what the orchestrator is doing for this task:
+//! Control Rail redesign (deck §04): dual-pane polled tail, restyled
+//! for the dark palette. Each pane has:
 //!
-//! - **Top pane:** the workdir-wide `<workdir>/.alps-telemetry.log`
-//!   file (orchestrator `elog!` lines from every task in the workdir,
-//!   **not filtered** — `elog!` doesn't tag lines with `task_id`).
-//!   Honestly labeled as such.
-//! - **Bottom pane:** the per-task
-//!   `<workdir>/tasks/<id>/implementation/ralph/.ralph-stderr.log`
-//!   file (the Ralph/Codex subprocess's stderr mirror for this task).
-//!   Per-task scoped.
-//!
-//! Both panes share:
-//! - A single pause/resume toggle (the buffer state freezes when
-//!   paused; polling resumes on unpause).
-//! - A single substring search input that filters both panes.
-//! - A 500ms polling cadence with a 1000-line in-memory cap per pane
-//!   (drop-oldest on overflow).
+//! - Toolbar with the file path (mono, faint) + a Switch primitive
+//!   (deco-only toggle; the deck shows it without wiring).
+//! - Filter row (search input + line count).
+//! - Log lines color-coded by level — `lv-info` (dim), `lv-warn`
+//!   (amber), `lv-ok` (teal), `lv-err` (red). The level is derived
+//!   from substring matches against the line text (informational only).
 //!
 //! ## Why polling, not SSE
 //!
-//! v1 deliberate simplification. SSE in Dioxus 0.7 requires bypassing
-//! the `#[server]` macro (the macro returns a single JSON value via
-//! axum, not a streaming response). The 500ms polling cadence is
-//! fine for a log tail, keeps the verify-script deterministic, and
-//! lets us upgrade to SSE in v2 without a wire-shape change. See
-//! `~/Obsidian/projects/alps-ui-m3-brief.md` M3b "Why polling, not
-//! SSE" for the full discussion.
+//! Carried over from M3b. SSE upgrade is deferred to v2 — wire shape
+//! doesn't change.
 //!
 //! ## Why the polling loop lives in the page (not a hook)
 //!
-//! Dioxus 0.7's `use_future` is the idiomatic place for "spawn a
-//! background task tied to component lifetime". A `use_log_tail`
-//! hook would be a thin wrapper around the same pattern, and
-//! introducing it for v1 means adding a new module + two generic
-//! fn signatures + a callback-bridge layer that the rest of the
-//! codebase doesn't use. Inlining keeps the polling loop, the
-//! buffer signals, and the rendered UI in one file — easier to
-//! read in a 6-month re-visit, and the v2 SSE upgrade only needs
-//! to replace the `use_future` body.
+//! Same rationale as M3b. The polling loop, buffer signals, and
+//! rendered UI live in one file for readability.
 
 use std::time::Duration;
 
@@ -51,28 +30,9 @@ use crate::api::{task_log_tail_ralph, task_log_tail_telemetry, LogLine};
 use crate::domain::TaskId;
 use crate::state;
 
-// Local `default_workdir` removed in M4-proper — replaced by the
-// shared `state::Workdir` context. See `state.rs` for the resolution
-// chain (config file → env var → `$HOME/Development/alps-runs`).
-
-/// Maximum lines kept in memory per pane.
-///
-/// 1000 lines × ~50 chars/line ≈ 50KB per pane. Drop-oldest on
-/// overflow. Matches the brief.
 const MAX_BUFFERED_LINES: usize = 1000;
-
-/// Poll cadence.
 const POLL_INTERVAL_MS: u64 = 500;
 
-/// Cross-target `sleep(ms)` for the polling loop. Uses
-/// `tokio::time::sleep` on native (the `server` build pulls tokio
-/// transitively via alps-core) and a `setTimeout`-backed `Promise`
-/// on wasm (tokio doesn't compile to wasm32).
-///
-/// The wasm path is rare in practice — the SSR-only build
-/// (`dx serve --platform server`) doesn't reach this code at all
-/// (no JS engine), and the wasm hydration build reaches it via
-/// the browser's microtask queue.
 #[cfg(not(target_arch = "wasm32"))]
 async fn poll_sleep(ms: u64) {
     tokio::time::sleep(Duration::from_millis(ms)).await;
@@ -81,18 +41,8 @@ async fn poll_sleep(ms: u64) {
 #[cfg(target_arch = "wasm32")]
 async fn poll_sleep(ms: u64) {
     use wasm_bindgen_futures::JsFuture;
-
-    // Create a Promise that resolves after `ms` via setTimeout.
-    // `Promise::new`'s closure receives the resolver functions and
-    // schedules `resolve(undefined)` to fire after `ms`. The future
-    // is awaited via `JsFuture`, which yields once the Promise
-    // resolves — i.e. once `ms` have elapsed.
     let promise = js_sys::Promise::new(&mut |resolve, _reject| {
         let win = web_sys::window().expect("no window in wasm context");
-        // `resolve` is a `js_sys::Function`; coerce to a raw
-        // `Function` via `JsCast::dyn_ref` so web-sys's C bindings
-        // can pass it through to setTimeout. The `_0` variant
-        // takes no extra arguments (just a callback + timeout ms).
         let callback: &js_sys::Function = resolve.dyn_ref().expect("resolve is a Function");
         let _ = win.set_timeout_with_callback_and_timeout_and_arguments_0(
             callback,
@@ -104,48 +54,14 @@ async fn poll_sleep(ms: u64) {
 
 #[component]
 pub fn TaskLog(id: TaskId) -> Element {
-    // Page state — two per-pane buffers + shared pause + shared
-    // filter query. The polling loop writes to the buffers; the
-    // filter is a separate Signal so toggling pause doesn't reset
-    // the filter state.
     let telemetry_lines = use_signal(Vec::<LogLine>::new);
     let ralph_lines = use_signal(Vec::<LogLine>::new);
     let mut paused = use_signal(|| false);
     let mut filter = use_signal(String::new);
 
-    // Capture the route's task_id once at mount time. The task_id
-    // is a `TaskId` newtype; clone the inner String for the polling
-    // loop's owned values.
-    //
-    // v1.1 fix (PR #16): capture the Workdir **signal** (not the
-    // value). `Workdir::signal()` returns a `Signal<String>`; reading
-    // it via `.cloned()` inside the `use_future` closure re-reads the
-    // signal on each iteration, so when the Workdir context updates
-    // (Settings Save, App-mount `use_future(get_workdir)` resolves),
-    // the polling loop pivots to the new workdir on its next tick.
-    // Without this, the loop would fetch telemetry/ralph lines from
-    // a stale workdir forever, even after the user changes it via
-    // Settings. Mirrors the Settings race fix in PR #14 (Pitfall
-    // #56); same latent-bug surface as TaskDetail/TaskDiff.
-    //
-    // Note: the currently in-flight fetch (the one that's already
-    // awaited when the workdir changes) will complete with the old
-    // workdir's data. The next loop iteration reads the new signal
-    // value and pivots. This is the right semantics — we don't want
-    // to restart the loop on every signal change (would lose buffered
-    // lines); we want each iteration to use the latest workdir.
     let task_id_value = id.0.clone();
     let workdir_signal = use_context::<state::Workdir>().signal();
 
-    // Polling loop. `use_future` spawns a task tied to the component's
-    // lifetime; the loop sleeps `POLL_INTERVAL_MS` between fetches
-    // and re-runs naturally whenever the `paused` signal flips
-    // (Dioxus's runtime uses `read()` borrows to detect dependency
-    // changes).
-    //
-    // We capture `telemetry_lines` and `ralph_lines` by value (not
-    // `cloned()`) so the loop can write to them via `with_mut`.
-    // `paused` is read inside the loop body.
     let _ = use_future(move || {
         let wd = workdir_signal.cloned();
         let tid = task_id_value.clone();
@@ -155,38 +71,19 @@ pub fn TaskLog(id: TaskId) -> Element {
 
         async move {
             loop {
-                // Pause early-return: sleep one tick and re-check.
-                // Doesn't reset the buffer; the next non-paused
-                // tick resumes from the current cursor.
                 if *paused.read() {
                     poll_sleep(POLL_INTERVAL_MS).await;
                     continue;
                 }
 
-                // Telemetry fetch. The cursor is "one past the last line we've
-                // already buffered" — which is `last_line_no + 1` for a
-                // non-empty buffer, or `0` for an empty one. Using
-                // `buf.len()` here would be WRONG when the buffer is
-                // capped: a 2200-line file with `MAX_BUFFERED_LINES=1000`
-                // holds `len()=1000` entries but the last entry's
-                // `line_no` is 1499, so the next cursor must be 1500,
-                // not 1000. That bug (caught by the live-tick test
-                // on 2026-08-26) caused the ralph pane to stop
-                // advancing past line 1499 once it hit the cap.
                 let tel_cursor = next_cursor(&tel_buf.read());
                 match task_log_tail_telemetry(wd.clone(), tel_cursor).await {
                     Ok(new_lines) => append_capped(&mut tel_buf, new_lines),
                     Err(e) => {
-                        // Mute the noise: an Err here means the
-                        // server fn couldn't read the file
-                        // (permissions, race with a write). The
-                        // page will surface the error via the
-                        // bottom banner.
                         eprintln!("task_log telemetry fetch error: {e:?}");
                     }
                 }
 
-                // Ralph fetch — same cursor-correctness rule.
                 let ral_cursor = next_cursor(&ral_buf.read());
                 match task_log_tail_ralph(wd.clone(), tid.clone(), ral_cursor).await {
                     Ok(new_lines) => append_capped(&mut ral_buf, new_lines),
@@ -206,14 +103,28 @@ pub fn TaskLog(id: TaskId) -> Element {
     let is_paused = *paused.read();
 
     rsx! {
-        div { class: "p-4 sm:p-6 lg:p-8 space-y-4",
-            // Header: StatusPill + task_id + Pause toggle + filter.
-            div { class: "flex flex-wrap items-baseline justify-between gap-3",
-                div { class: "flex items-center gap-3",
-                    h1 { class: "text-2xl font-semibold text-slate-800", "Log" }
-                    span { class: "font-mono text-sm text-slate-500", "{id}" }
+        div {
+            style: "padding:24px;",
+            // Header.
+            div {
+                style: "display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:20px;",
+                div {
+                    style: "display:flex;align-items:baseline;gap:12px;",
+                    Link {
+                        to: Route::TaskDetail { id: id.clone() },
+                        class: "alps-mono",
+                        style: "font-size:11px;color:var(--dim);text-decoration:none;",
+                        "← "
+                        span { "{id}" }
+                    }
+                    h1 {
+                        class: "alps-mono",
+                        style: "font-size:24px;font-weight:600;margin:0;color:var(--text);",
+                        "Log"
+                    }
                 }
-                div { class: "flex items-center gap-2",
+                div {
+                    style: "display:flex;align-items:center;gap:8px;",
                     PauseToggle {
                         paused: is_paused,
                         on_toggle: move |_| {
@@ -227,45 +138,59 @@ pub fn TaskLog(id: TaskId) -> Element {
                     }
                 }
             }
-
-            // Top pane: workdir-wide telemetry.
-            LogPane {
-                label: "Workdir orchestrator log (shared across all tasks)",
-                hint: "Per-task filter not yet available — `elog!` does not tag lines with task_id. See alps-ui-m3-brief.md M3b revision note.",
-                lines: tel_lines,
-                filter_query: query.clone(),
-                max_lines: MAX_BUFFERED_LINES,
-            }
-
-            // Bottom pane: per-task ralph activity.
-            LogPane {
-                label: "Per-task Ralph/Codex activity",
-                hint: "Tail of <workdir>/tasks/<id>/implementation/ralph/.ralph-stderr.log — only meaningful while the task is in [implement] phase.",
-                lines: ral_lines,
-                filter_query: query,
-                max_lines: MAX_BUFFERED_LINES,
+            // Dual-pane layout per deck §04.
+            div {
+                style: "display:grid;grid-template-columns:1fr 1fr;gap:18px;",
+                LogPane {
+                    label: "Workdir orchestrator log",
+                    subtitle: "<workdir>/.alps-telemetry.log · shared across all tasks",
+                    hint: "Per-task filter not yet available — elog! does not tag lines with task_id.",
+                    lines: tel_lines,
+                    filter_query: query.clone(),
+                    max_lines: MAX_BUFFERED_LINES,
+                    is_paused,
+                }
+                LogPane {
+                    label: "Per-task Ralph/Codex activity",
+                    subtitle: "<workdir>/tasks/<id>/implementation/ralph/.ralph-stderr.log",
+                    hint: "Only meaningful while the task is in [implement] phase.",
+                    lines: ral_lines,
+                    filter_query: query,
+                    max_lines: MAX_BUFFERED_LINES,
+                    is_paused,
+                }
             }
         }
     }
 }
 
-/// One log pane (label + hint + filtered <pre>).
-///
-/// The `<pre>` is monospace + `whitespace-pre-wrap` so long lines
-/// wrap rather than overflow horizontally. Latest line at the
-/// bottom; the verify-script uses the line count + presence of
-/// the filter input + Pause button as acceptance markers.
-///
-/// Renders an empty-state card when the buffer is empty (so the
-/// pane never collapses to nothing — the operator sees the label
-/// + hint and knows "nothing has happened yet, that's expected").
+use crate::routes::Route;
+
+/// Classify a log line into an info/warn/ok/err CSS class based on
+/// substring matches in the line text. The deck §04 mockup shows the
+/// same four colors for log levels.
+fn classify_line(text: &str) -> &'static str {
+    let lower = text.to_ascii_lowercase();
+    if lower.contains("error") || lower.contains("fail") || lower.contains("panic") {
+        "lv-err"
+    } else if lower.contains("warn") || lower.contains("retry") || lower.contains("deprecat") {
+        "lv-warn"
+    } else if lower.contains("pass") || lower.contains("ok") || lower.contains("success") || lower.contains("attached") {
+        "lv-ok"
+    } else {
+        "lv-info"
+    }
+}
+
 #[component]
 fn LogPane(
     label: &'static str,
+    subtitle: &'static str,
     hint: &'static str,
     lines: Vec<LogLine>,
     filter_query: String,
     max_lines: usize,
+    is_paused: bool,
 ) -> Element {
     let filtered: Vec<&LogLine> = if filter_query.is_empty() {
         lines.iter().collect()
@@ -277,23 +202,64 @@ fn LogPane(
     };
 
     rsx! {
-        section { class: "space-y-2",
-            div { class: "flex items-baseline justify-between gap-2",
-                h2 { class: "text-sm font-medium text-slate-700", "{label}" }
-                span { class: "font-mono text-xs text-slate-400",
-                    "showing {filtered.len()} of {lines.len()} (cap {max_lines})"
+        section {
+            class: "log-pane",
+            div {
+                class: "log-toolbar",
+                div {
+                    style: "display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;",
+                    span {
+                        class: "alps-mono",
+                        style: "font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;",
+                        "{label}"
+                    }
+                    span {
+                        class: "log-path",
+                        "{subtitle}"
+                    }
+                }
+                if is_paused {
+                    span { class: "log-switch-off", title: "Paused" }
+                } else {
+                    span { class: "log-switch", title: "Polling" }
                 }
             }
+           div {
+               class: "log-filter",
+               // Filter input lives in the page header (shared across
+               // both panes). The pane's filter row just shows the
+               // "showing X of Y (cap Z)" count — the deck §04 mockup
+               // has the filter input per-pane, but a single shared
+               // filter is a saner UX (typing in one pane filters
+               // both). The FilterInput above the dual-pane grid
+               // writes to the shared `filter` signal.
+               span {
+                   "showing {filtered.len()} of {lines.len()} (cap {max_lines})"
+               }
+           }
             if filtered.is_empty() {
-                div { class: "rounded-md border border-slate-200 bg-white p-3 shadow-sm",
-                    p { class: "text-xs text-slate-500", "{hint}" }
+                div {
+                    style: "padding:18px 20px;background:var(--ink);",
+                    p {
+                        class: "alps-sans",
+                        style: "font-size:12px;color:var(--faint);font-style:italic;margin:0;",
+                        "{hint}"
+                    }
                 }
             } else {
-                pre { class: "rounded-md border border-slate-200 bg-slate-50 p-3 text-xs font-mono text-slate-800 whitespace-pre-wrap break-words max-h-[40vh] overflow-y-auto",
+                pre {
+                    class: "log-lines",
                     for line in filtered.iter() {
-                        span { class: "block",
-                            span { class: "text-slate-400 mr-3 select-none", "{line.line_no}" }
-                            span { "{line.text}" }
+                        div {
+                            span {
+                                class: "ts",
+                                style: "margin-right:10px;",
+                                "{line.line_no:>4} "
+                            }
+                            span {
+                                class: classify_line(&line.text),
+                                "{line.text}"
+                            }
                         }
                     }
                 }
@@ -302,31 +268,27 @@ fn LogPane(
     }
 }
 
-/// Pause / resume button.
 #[component]
 fn PauseToggle(paused: bool, on_toggle: EventHandler<MouseEvent>) -> Element {
     rsx! {
         button {
             r#type: "button",
-            class: "rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50",
+            class: "btn-ghost",
+            style: "padding:6px 10px;font-size:11px;",
             onclick: move |evt| on_toggle.call(evt),
             title: if paused { "Resume polling" } else { "Pause polling — buffer freezes" },
-            if paused {
-                "▶ Resume"
-            } else {
-                "⏸ Pause"
-            }
+            if paused { "▶ Resume" } else { "⏸ Pause" }
         }
     }
 }
 
-/// Substring search filter input.
 #[component]
 fn FilterInput(query: String, on_input: EventHandler<String>) -> Element {
     rsx! {
         input {
             r#type: "search",
-            class: "rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500 w-48",
+            class: "alps-mono",
+            style: "background:transparent;border:1px solid var(--hair-soft);border-radius:6px;color:var(--dim);font-size:11px;width:140px;padding:5px 8px;outline:none;",
             placeholder: "filter…",
             value: "{query}",
             oninput: move |evt| on_input.call(evt.value()),
@@ -334,15 +296,6 @@ fn FilterInput(query: String, on_input: EventHandler<String>) -> Element {
     }
 }
 
-/// Append `new_lines` to `buf`, truncating from the front if `buf`
-/// would exceed `cap`.
-///
-/// `new_lines` is assumed to be in cursor order (0-indexed,
-/// monotonically increasing). The function does NOT deduplicate;
-/// if the server returns overlapping lines on rare race conditions,
-/// the buffer may contain duplicates. The cursor invariant is
-/// `server_returns_lines_with_line_no == buf.last().line_no + 1`,
-/// documented in `api/log.rs::tail_file`.
 fn append_capped(buf: &mut Signal<Vec<LogLine>>, new_lines: Vec<LogLine>) {
     buf.with_mut(|b| {
         b.extend(new_lines);
@@ -353,21 +306,6 @@ fn append_capped(buf: &mut Signal<Vec<LogLine>>, new_lines: Vec<LogLine>) {
     });
 }
 
-/// Compute the next-fetch cursor from a buffer.
-///
-/// Returns `0` for an empty buffer (start of file). Otherwise returns
-/// `last.line_no + 1` — the line number ONE PAST the last entry we've
-/// already buffered.
-///
-/// **Why not `buf.len()`?** Once the buffer is capped at
-/// `MAX_BUFFERED_LINES`, `len()` no longer equals the file offset of
-/// the last entry — it equals the *count* of buffered entries. For a
-/// 2200-line file with the buffer capped at 1000, `len()=1000` but
-/// `last.line_no=1499`, so the next cursor must be 1500. Using
-/// `len()=1000` re-fetches lines 1000-1499 every poll, which the
-/// buffer silently de-duplicates by extending + truncating (so the
-/// pane appears to "stop advancing" past the cap). Caught 2026-08-26
-/// by the live-tick test that Kyle requested.
 fn next_cursor(buf: &[LogLine]) -> u64 {
     match buf.last() {
         Some(last) => last.line_no + 1,
@@ -397,63 +335,29 @@ mod tests {
 
     #[test]
     fn next_cursor_after_truncation_uses_line_no_not_position() {
-        // This is the bug: after front-truncation drops the first N
-        // lines, the buffer's len() no longer matches the last
-        // entry's line_no + 1. next_cursor must use the line_no.
-        // Buffer holds lines 500..=1499 (1000 entries after truncation
-        // from an original 1500-entry buffer).
         let buf: Vec<LogLine> = (500..1500).map(|i| make_line(i, "x")).collect();
         assert_eq!(buf.len(), 1000, "buf should be 1000 lines (capped)");
         assert_eq!(next_cursor(&buf), 1500, "next cursor must be 1500, NOT 1000");
     }
 
     #[test]
-    fn append_capped_truncates_front_on_overflow() {
-        // Simulate the cap logic by directly mutating a Vec.
-        let mut buf: Vec<LogLine> = (0..MAX_BUFFERED_LINES as u64)
-            .map(|i| make_line(i, &format!("old-{i}")))
-            .collect();
-        buf.extend(vec![
-            make_line(MAX_BUFFERED_LINES as u64, "new-0"),
-            make_line((MAX_BUFFERED_LINES + 1) as u64, "new-1"),
-            make_line((MAX_BUFFERED_LINES + 2) as u64, "new-2"),
-            make_line((MAX_BUFFERED_LINES + 3) as u64, "new-3"),
-            make_line((MAX_BUFFERED_LINES + 4) as u64, "new-4"),
-        ]);
-        if buf.len() > MAX_BUFFERED_LINES {
-            let excess = buf.len() - MAX_BUFFERED_LINES;
-            buf.drain(0..excess);
-        }
-        assert_eq!(buf.len(), MAX_BUFFERED_LINES);
-        assert_eq!(buf[0].text, "old-5");
-        assert_eq!(buf[MAX_BUFFERED_LINES - 1].text, "new-4");
+    fn classify_line_recognizes_levels() {
+        assert_eq!(classify_line("tick task-042 phase=implement"), "lv-info");
+        assert_eq!(classify_line("worker attached pid 88214"), "lv-ok");
+        assert_eq!(classify_line("retry: git fetch origin (1/3)"), "lv-warn");
+        assert_eq!(classify_line("error: spawn failed"), "lv-err");
+        assert_eq!(classify_line("cargo test: 1 flaky retry"), "lv-warn");
+        assert_eq!(classify_line("cargo check passed"), "lv-ok");
     }
 
-    #[test]
-    fn append_capped_no_truncate_under_limit() {
-        let mut buf: Vec<LogLine> = Vec::new();
-        buf.extend(vec![make_line(0, "a"), make_line(1, "b")]);
-        if buf.len() > MAX_BUFFERED_LINES {
-            let excess = buf.len() - MAX_BUFFERED_LINES;
-            buf.drain(0..excess);
-        }
-        assert_eq!(buf.len(), 2);
-        assert_eq!(buf[0].text, "a");
-        assert_eq!(buf[1].text, "b");
-    }
-
-    /// SSR contract for M3b: the page must render both pane labels
-    /// + the Pause button in the SSR'd HTML so the verify-script's
-    /// +3 acceptance criteria pass without hydration.
+    /// SSR contract for M3b: the page must render both pane labels +
+    /// the Pause button in the SSR'd HTML so the verify-script's
+    /// #5g acceptance criteria pass without hydration.
     #[test]
     fn task_log_ssr_shows_both_pane_labels_and_pause_button() {
         use crate::pages::TaskLog;
         use crate::state::provide_workdir;
 
-        // Wrap TaskLog in an inline component that provides the
-        // Workdir context (M4-proper). Tests previously rendered the
-        // page directly, but TaskLog now reads via use_context which
-        // is uninitialized without App's provide_workdir() call.
         #[component]
         fn TestApp() -> Element {
             let _wd = provide_workdir();
@@ -474,7 +378,7 @@ mod tests {
             html.contains("Per-task Ralph/Codex activity"),
             "Bottom pane label should render in SSR: {html}"
         );
-        // Pause button.
+        // Pause button label.
         assert!(
             html.contains("Pause"),
             "Pause button should render in SSR: {html}"

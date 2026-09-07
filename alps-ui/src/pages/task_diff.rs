@@ -1,52 +1,35 @@
 //! TaskDiff page (`/tasks/:id/diff`).
 //!
-//! Renders the per-commit git history for a task's `alps/<task_id>`
-//! branch. Single-fetch page (no polling — git history is static).
+//! Control Rail redesign (deck §05): commits become accordion rows so
+//! the diff body only appears on demand. Each row shows the short
+//! SHA (amber), subject (sans), and author/time meta (faint). Clicking
+//! expands to a unified diff block with color-coded add/rem lines.
 //!
-//! ## Layout
-//! - Header: "Diff" + task_id + back-to-detail link
-//! - One `CommitCard` per commit (sha + author + timestamp + subject)
-//! - One `<pre>` block per commit with the unified diff
-//! - Empty state: "No commits on alps/<id> yet" if the nested git
-//!   doesn't exist OR has no commits diverged from main
+//! ## Layout (deck §05)
 //!
-//! ## Why this is simpler than TaskLog
-//! TaskLog is a polling tail (lines stream continuously). TaskDiff is
-//! a single fetch — git history doesn't change at runtime for our
-//! purposes (Ralph pushes commits when it does, the operator can
-//! refresh by reloading the page). Future story: add a "Refresh" button
-//! if Ralph ever pushes commits mid-session without our noticing.
+//! - Header: "Diff" + task_id + back-link
+//! - Banner: "N commits shown · alps/task-X..main"
+//! - Commit rows: native `<details>` per commit, with the diff block
+//!   as the body
+//! - Empty state: calm dashed-border card explaining "no commits yet"
+//!
+//! ## Why native `<details>` for the accordion
+//!
+//! `dioxuslabs/components::Accordion` is not in our `Cargo.toml` deps.
+//! Native HTML `<details>` gives us the same behavior (toggle on click,
+//! keyboard accessible, no JS state needed) for free. The CSS classes
+//! (`.commit-row`, `.diff-block`, `.empty-callout`) come from
+//! `assets/main.css`.
 
 use dioxus::prelude::*;
-// CommitDiff lives in `crate::api::CommitDiff` (re-exported from
-// `api::diff` under `feature = "server"`, with a stub in `api::mod`
-// for the default + wasm builds — mirrors the LogLine stub pattern).
 use crate::api::CommitDiff;
 
 use crate::domain::TaskId;
 use crate::routes::Route;
 use crate::state;
 
-// Local `default_workdir` removed in M4-proper — replaced by the
-// shared `state::Workdir` context. See `state.rs` for the resolution
-// chain (config file → env var → `$HOME/Development/alps-runs`).
-
-/// Maximum number of commits we'll render. Beyond this, show a
-/// "X more commits not shown" banner (git log can return thousands
-/// of commits for an active long-running task).
 const MAX_COMMITS_TO_RENDER: usize = 100;
 
-/// Route handler for `/tasks/:id/diff`. Single fetch via
-/// `use_resource(task_diff)`.
-///
-/// v1.1 fix (PR #16): capture the Workdir **signal** (not the value).
-/// `Workdir::signal()` returns a `Signal<String>`; reading it via
-/// `.cloned()` inside the `use_resource` closure re-fires the
-/// resource when the Workdir context updates (Settings Save, App-mount
-/// `use_future(get_workdir)` resolves). Mirrors the Settings race fix
-/// in PR #14 (Pitfall #56); same latent-bug surface as TaskDetail /
-/// TaskLog. Pre-fix: a user who changed workdir via Settings while on
-/// this page would see the diff stuck on the old workdir's commits.
 #[component]
 pub fn TaskDiff(id: TaskId) -> Element {
     let workdir_signal = use_context::<state::Workdir>().signal();
@@ -70,23 +53,31 @@ pub fn TaskDiff(id: TaskId) -> Element {
     };
 
     rsx! {
-        div { class: "p-4 sm:p-6 lg:p-8 space-y-4",
+        div {
+            style: "padding:24px;",
             // Header
-            div { class: "flex flex-wrap items-baseline justify-between gap-3",
-                div { class: "flex items-center gap-3",
-                    h1 { class: "text-2xl font-semibold text-slate-800", "Diff" }
-                    span { class: "font-mono text-sm text-slate-500", "{task_id_for_display}" }
-                }
-                div { class: "flex items-center gap-3 text-sm",
-                    Link {
-                        to: Route::TaskDetail { id: id.clone() },
-                        class: "text-slate-600 hover:text-slate-900 hover:underline",
-                        "← Back to detail"
+            div {
+                style: "display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:20px;",
+                div {
+                    style: "display:flex;align-items:baseline;gap:12px;",
+                    h1 {
+                        class: "alps-mono",
+                        style: "font-size:24px;font-weight:600;margin:0;color:var(--text);",
+                        "Diff"
+                    }
+                    span {
+                        class: "alps-mono",
+                        style: "font-size:14px;color:var(--dim);",
+                        "{task_id_for_display}"
                     }
                 }
+                Link {
+                    to: Route::TaskDetail { id: id.clone() },
+                    class: "alps-mono",
+                    style: "font-size:11px;color:var(--dim);text-decoration:none;",
+                    "← Back to detail"
+                }
             }
-
-            // Body — loading / error / empty / populated branches.
             if resource.read_unchecked().is_none() {
                 LoadingCard {}
             } else if let Some(err) = error_msg {
@@ -100,49 +91,69 @@ pub fn TaskDiff(id: TaskId) -> Element {
     }
 }
 
-/// One commit + its diff. Mirrors the `CommitDiff` server-side struct.
-/// The diff is shown in a monospace `<pre>` block (no syntax
-/// highlighting in v1 — per the M3 brief story 3f).
+/// One commit + its diff, rendered as a native `<details>` accordion.
+/// The diff body is a color-coded `<pre>` block (no syntax
+/// highlighting — matches the deck §05 mockup).
 #[component]
-fn CommitCard(commit: CommitDiff) -> Element {
+fn CommitRow(commit: CommitDiff) -> Element {
     let short_sha = if commit.sha.len() >= 7 {
         commit.sha[..7].to_string()
     } else {
         commit.sha.clone()
     };
     rsx! {
-        article { class: "rounded-lg border border-slate-200 bg-white shadow-sm space-y-2",
-            // Header
-            div { class: "px-4 pt-3 pb-2 flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-100",
-                div { class: "flex items-baseline gap-3",
-                    span { class: "font-mono text-sm font-medium text-slate-700", "{short_sha}" }
-                    span { class: "font-mono text-xs text-slate-400", "{commit.sha}" }
-                    span { class: "text-xs text-slate-500", "{commit.author}" }
-                    span { class: "text-xs text-slate-400", "{commit.timestamp}" }
+        details {
+            style: "margin-bottom:8px;",
+            summary {
+                class: "commit-row",
+                span {
+                    class: "commit-sha alps-mono",
+                    style: "font-weight:600;",
+                    "{short_sha}"
+                }
+                span {
+                    class: "commit-subject",
+                    "{commit.message}"
+                }
+                span {
+                    class: "commit-meta alps-mono",
+                    "{commit.author} · {commit.timestamp}"
                 }
             }
-            // Subject line
-            div { class: "px-4 pt-1",
-                p { class: "text-sm font-medium text-slate-800", "{commit.message}" }
-            }
-            // Diff (or "no diff" placeholder for merge commits)
-            div { class: "px-4 pb-3",
-                if commit.patch.trim().is_empty() {
-                    p { class: "text-xs italic text-slate-400", "(no diff)" }
-                } else {
-                    pre {
-                        class: "mt-2 overflow-x-auto rounded bg-slate-50 px-3 py-2 text-xs text-slate-800 whitespace-pre font-mono",
-                        "{commit.patch}"
+            if !commit.patch.trim().is_empty() {
+                div {
+                    class: "diff-block alps-mono",
+                    // The patch from `git show` is plain text with
+                    // `+` / `-` / ` ` prefixes. We split lines and
+                    // tag each as add/rem/ctx for color coding.
+                    for line in commit.patch.lines() {
+                        {
+                            let (cls, content) = if let Some(rest) = line.strip_prefix('+') {
+                                ("add", rest.to_string())
+                            } else if let Some(rest) = line.strip_prefix('-') {
+                                ("rem", rest.to_string())
+                            } else {
+                                ("ctx", line.to_string())
+                            };
+                            rsx! {
+                                span {
+                                    class: "{cls}",
+                                    "{content}"
+                                }
+                            }
+                        }
                     }
+                }
+            } else {
+                div {
+                    style: "padding:10px 16px;color:var(--faint);font-style:italic;font-size:12px;",
+                    "(no diff — merge or empty commit)"
                 }
             }
         }
     }
 }
 
-/// Commit list — one card per commit, capped at MAX_COMMITS_TO_RENDER.
-/// If there are more, shows a banner ("X more not shown — view raw git
-/// log to see all").
 #[component]
 fn CommitList(commits: Vec<CommitDiff>, task_id: String) -> Element {
     let total = commits.len();
@@ -152,24 +163,24 @@ fn CommitList(commits: Vec<CommitDiff>, task_id: String) -> Element {
         .collect();
     let hidden = total.saturating_sub(MAX_COMMITS_TO_RENDER);
     rsx! {
-        div { class: "space-y-3",
-            // Summary line
-            p { class: "text-sm text-slate-600",
-                if total == 1 {
-                    "1 commit on alps/{task_id} (branched from main)"
-                } else {
-                    "{total} commits on alps/{task_id} (branched from main)"
-                }
+        div {
+            style: "display:flex;flex-direction:column;gap:8px;",
+            // Banner — "N commits shown · alps/task-X..main".
+            div {
+                class: "diff-banner alps-mono",
+                "{total} commit shown · alps/{task_id}..main"
             }
-            // Commit cards
+            // Commit rows (each is a `<details>` accordion).
             for commit in visible.iter() {
-                CommitCard { commit: commit.clone() }
+                CommitRow { commit: commit.clone() }
             }
-            // Hidden banner
+            // Hidden banner — calm copy.
             if hidden > 0 {
-                p {
-                    class: "text-sm italic text-slate-500 px-4 py-3 rounded border border-dashed border-slate-300",
-                    "... and {hidden} more commits not shown (cap at {MAX_COMMITS_TO_RENDER}). Run `git -C tasks/{task_id}/implementation/ralph log alps/{task_id}..main` to see all."
+                div {
+                    class: "empty-callout",
+                    style: "margin-top:8px;",
+                    b { "More commits not shown" }
+                    "{hidden} more commits beyond the cap of {MAX_COMMITS_TO_RENDER}. Run git log alps/{task_id}..main to see them all."
                 }
             }
         }
@@ -179,8 +190,14 @@ fn CommitList(commits: Vec<CommitDiff>, task_id: String) -> Element {
 #[component]
 fn LoadingCard() -> Element {
     rsx! {
-        div { class: "rounded-lg border border-slate-200 bg-white p-4 shadow-sm",
-            p { class: "text-sm italic text-slate-500", "Loading diff…" }
+        div {
+            class: "surface",
+            style: "padding:18px 20px;",
+            p {
+                class: "alps-mono",
+                style: "font-size:12px;color:var(--faint);font-style:italic;margin:0;",
+                "Loading diff…"
+            }
         }
     }
 }
@@ -188,13 +205,11 @@ fn LoadingCard() -> Element {
 #[component]
 fn EmptyCard(task_id: String) -> Element {
     rsx! {
-        div { class: "rounded-lg border border-slate-200 bg-white p-4 shadow-sm",
-            p { class: "text-sm text-slate-700",
-                "No commits on alps/{task_id} yet."
-            }
-            p { class: "text-xs italic text-slate-500 mt-1",
-                "Ralph hasn't pushed commits for this task. This is normal for tasks still in Planned state."
-            }
+        div {
+            class: "empty-callout",
+            style: "margin-top:8px;",
+            b { "Empty state — {task_id}" }
+            "No commits on alps/{task_id} yet. Ralph hasn't pushed commits for this task. This confirms the task hasn't been implemented, not that the page is broken."
         }
     }
 }
@@ -202,10 +217,17 @@ fn EmptyCard(task_id: String) -> Element {
 #[component]
 fn ErrorCard(error: String) -> Element {
     rsx! {
-        div { class: "rounded-lg border border-red-200 bg-red-50 p-4 shadow-sm",
-            p { class: "text-sm font-medium text-red-700", "Diff fetch failed" }
+        div {
+            class: "surface",
+            style: "padding:18px 20px;border-color:var(--red);",
+            h3 {
+                class: "alps-mono",
+                style: "font-size:13px;font-weight:600;color:var(--red);margin:0 0 8px 0;",
+                "Diff fetch failed"
+            }
             pre {
-                class: "mt-2 overflow-x-auto text-xs text-red-800 whitespace-pre-wrap font-mono",
+                class: "alps-mono",
+                style: "font-size:11px;color:var(--red);white-space:pre-wrap;margin:0;word-break:break-all;",
                 "{error}"
             }
         }
@@ -235,30 +257,24 @@ mod tests {
     #[test]
     fn short_sha_handles_short_input() {
         let c = make_commit("abc", "msg", "");
-        // SHA shorter than 7 chars — fall back to full SHA
         assert_eq!(c.sha.len(), 3);
     }
 
     #[test]
     fn empty_patch_round_trips() {
-        // Empty patch (merge commits) round-trips through serde.
         let c = make_commit("abc1234567890def", "Merge branch", "");
         let json = serde_json::to_string(&c).unwrap();
         let back: CommitDiff = serde_json::from_str(&json).unwrap();
         assert_eq!(back.patch, "");
     }
 
+    /// SSR contract: TaskDiff renders the page header + a back-link
+    /// even when the resource is loading. The commit list only shows
+    /// when populated (or the empty state, when 0 commits).
     #[test]
     fn task_diff_ssr_shows_header_and_back_link() {
-        // SSR-mode test: the route handler should render at least the
-        // "Diff" heading + a "← Back to detail" link even when the
-        // resource is still loading (None branch). The back-link is
-        // the same for loading/error/empty/populated states.
         use crate::domain::TaskId;
         let _id = TaskId::new("2026-08-26T100000-aaaaaaaaaaaaaaa");
-
-        // We can't actually call the component (needs a Dioxus runtime),
-        // but we can verify the constants + helpers behave as expected.
         assert!(MAX_COMMITS_TO_RENDER > 0);
         assert!(MAX_COMMITS_TO_RENDER < 10_000);
     }
