@@ -159,6 +159,14 @@ body{
   border-color:var(--amber);
   box-shadow:0 0 0 6px var(--amber-glow);
 }
+/* Failed/Rejected tasks: active node paints red instead of amber
+ * (per rail.rs doc comment + deck §07 "stopped here at a glance").
+ * Class is set by the Rust component when has_failed && is_active. */
+.rail-full .rail-node.active.has-failed .rail-dot{
+  background:var(--red);
+  border-color:var(--red);
+  box-shadow:0 0 0 6px rgba(225,90,79,.35);
+}
 .rail-full .rail-label{
   font-family:var(--mono);
   font-size:12px;
@@ -167,6 +175,7 @@ body{
 }
 .rail-full .rail-node.done .rail-label{color:var(--teal);}
 .rail-full .rail-node.active .rail-label{color:var(--amber);}
+.rail-full .rail-node.active.has-failed .rail-label{color:var(--red);}
 .rail-full .rail-line{
   flex:1;
   height:2px;
