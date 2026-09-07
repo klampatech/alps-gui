@@ -10,17 +10,29 @@ presentational layer — it reads on-disk artifacts (`tasks/<id>/plan.json`,
 `task_run` server fn. The orchestrator's type-state machine remains the
 single source of truth for state transitions.
 
+## Design
+
+The current visual system is the **Control Rail** redesign — dark palette
+(ink / panel / hair / amber / teal / red signal colors), IBM Plex Mono + Sans
+typography, and the 5-node pipeline rail (Plan → Implement → Review → Judge →
+Done) used full-width on TaskDetail and as a mini-rail on Dashboard cards.
+See [`docs/alps-gui-redesign-deck.html`](docs/alps-gui-redesign-deck.html)
+for the full design spec (open in a browser; 7 sections covering all 5 pages
++ the shared rail component + the status pill vocabulary).
+
 ## Dashboard
 
-![Dashboard — 18 task cards, Submit form, persisted workdir propagates](docs/screenshots/dashboard.png)
+![Dashboard — 2-col layout: New task card (left) + 2-col task card grid (right) with mini-rails](docs/screenshots/dashboard.png)
 
-The Dashboard is the home page. The left column has a **New task** form
-(textarea + Submit button) that calls the `task_run` server fn, which shells
-out to `alps run --prompt-file`. The right column shows every task in the
-workdir as a card: StatusPill (Idle / Planned / Running / Done / Failed /
-Rejected), task ID, prompt, attempt + elapsed + started metadata. The
-subtitle "Reading tasks from /home/kyle/Development/alps-runs" is the
-**workdir** propagated from the Settings page via the shared `Workdir`
+The Dashboard is the home page. The left column has a **New task** card
+(textarea + amber **Run task ↗** button) that calls the `task_run` server
+fn, which shells out to `alps run --prompt-file`. The right column shows
+every task in the workdir as a card: StatusPill (Idle / Planned / Running
+/ Done / Failed / Rejected), task ID, prompt, a **mini-rail** (5 bars
+representing Plan / Implement / Review / Judge / Done), and an
+attempt + elapsed + started meta row. The subtitle "Reading tasks from
+/home/kyle/Development/alps-runs" is the **workdir** propagated from the
+Settings page via the shared `Workdir`
 context (M4-proper, see below).
 
 A New task form submission spawns an `alps run` child process; while it's
@@ -31,7 +43,7 @@ appears next to "Open log →" and "View diff →". Cancel shells out to
 
 ## TaskDetail
 
-![TaskDetail — StatusPill, Plan with story card + acceptance criteria, Review + Receipts placeholders, Open log / View diff footer](docs/screenshots/task-detail.png)
+![TaskDetail — full-width 5-node rail header, prompt block, Plan/Review/Receipts accordions](docs/screenshots/task-detail.png)
 
 The TaskDetail page (`/tasks/<id>`) renders a single task's full lifecycle:
 
@@ -52,7 +64,7 @@ with a loading skeleton, then `task_get` server fn fills in the actual data.
 
 ## TaskLog
 
-![TaskLog — dual-pane polled tails with Pause button + filter input + line counters](docs/screenshots/task-log.png)
+![TaskLog — dual-pane polled tails with toolbar + switch toggles + filter input + line counters + color-coded log levels](docs/screenshots/task-log.png)
 
 The TaskLog page (`/tasks/<id>/log`) shows two side-by-side panes:
 
@@ -75,7 +87,7 @@ activity yet; the UI still renders the full page chrome.
 
 ## TaskDiff
 
-![TaskDiff — empty-state card explaining no commits yet + back-to-detail link](docs/screenshots/task-diff.png)
+![TaskDiff — banner + commit accordions + calm empty-state callout](docs/screenshots/task-diff.png)
 
 The TaskDiff page (`/tasks/<id>/diff`) shows the commits Ralph has pushed
 to the task's `alps/<id>` branch against `main`. Implementation:
@@ -96,7 +108,7 @@ not "this page is broken".
 
 ## Settings
 
-![Settings — 3 cards: Workdir with Save button, MINIMAX_API_KEY detection status, About build metadata](docs/screenshots/settings.png)
+![Settings — 3 dark cards: Workdir with Save button, MINIMAX_API_KEY detection status pills, About build metadata](docs/screenshots/settings.png)
 
 The Settings page (`/settings`) is where the user changes the workdir path
 without restarting the server. Three cards:
@@ -212,6 +224,7 @@ klampatech/alps-gui/                     # THIS repo
 ├── scripts/
 │   └── verify-us-007.sh                 # 21 acceptance criteria (build + clippy + dx serve + curls)
 ├── docs/
+│   ├── alps-gui-redesign-deck.html      # visual design spec — Control Rail redesign (open in a browser)
 │   └── screenshots/                     # README screenshots (this dir; 6 PNGs)
 └── .github/
     └── workflows/ci.yaml                # 2 jobs: build + test / verify-us-007.sh

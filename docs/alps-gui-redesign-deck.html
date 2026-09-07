@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ALPS — Control Rail design deck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#12151b; --panel:#1a1e27; --panel2:#20242f; --hair:#343a48; --hair-soft:#262b37;
+    --text:#eef0f4; --dim:#9099ad; --faint:#5c6478;
+    --amber:#e8a23d; --amber-dim:#4a3a1f; --amber-glow:rgba(232,162,61,.35);
+    --teal:#3fb88f; --teal-dim:#1c3f34;
+    --red:#e15a4f; --red-dim:#4a2622;
+    --violet:#8f92e0; --violet-dim:#2b2c50;
+    --gray:#6b7284; --gray-dim:#262b37;
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+    --sans:'IBM Plex Sans',Inter,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--ink);color:var(--text);font-family:var(--sans);}
+  .deck{max-width:1320px;margin:0 auto;padding:64px 40px 96px;}
+  a{color:inherit;}
+
+  /* ---------- Cover ---------- */
+  .cover{padding:0 0 56px;border-bottom:1px solid var(--hair);}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);margin:0 0 18px;}
+  .title{font-family:var(--mono);font-weight:600;font-size:64px;letter-spacing:-.01em;margin:0 0 14px;}
+  .title span{color:var(--faint);}
+  .tagline{font-size:19px;color:var(--dim);max-width:640px;line-height:1.55;margin:0 0 36px;}
+  .meta-row{display:flex;gap:28px;flex-wrap:wrap;font-family:var(--mono);font-size:12px;color:var(--faint);margin-bottom:44px;}
+  .meta-row b{color:var(--dim);font-weight:500;}
+
+  /* rail (signature element) */
+  .rail{display:flex;align-items:center;gap:0;}
+  .rail-node{display:flex;flex-direction:column;align-items:center;gap:10px;position:relative;flex:0 0 auto;width:150px;}
+  .rail-dot{width:16px;height:16px;border-radius:50%;background:var(--gray-dim);border:2px solid var(--hair);z-index:1;}
+  .rail-node.done .rail-dot{background:var(--teal);border-color:var(--teal);}
+  .rail-node.active .rail-dot{background:var(--amber);border-color:var(--amber);box-shadow:0 0 0 6px var(--amber-glow);}
+  .rail-label{font-family:var(--mono);font-size:12px;color:var(--faint);letter-spacing:.03em;}
+  .rail-node.done .rail-label{color:var(--teal);}
+  .rail-node.active .rail-label{color:var(--amber);}
+  .rail-line{flex:1;height:2px;background:var(--hair);margin:0 -8px 24px;}
+  .rail-line.filled{background:var(--teal);}
+
+  /* ---------- Section shell ---------- */
+  .section{padding:64px 0;border-bottom:1px solid var(--hair);}
+  .section:last-of-type{border-bottom:none;}
+  .section-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:28px;gap:24px;flex-wrap:wrap;}
+  .section-num{font-family:var(--mono);font-size:12px;color:var(--faint);letter-spacing:.1em;}
+  .section-title{font-family:var(--mono);font-size:24px;font-weight:600;margin:6px 0 0;}
+  .section-sub{color:var(--dim);font-size:14px;max-width:520px;text-align:right;line-height:1.5;}
+
+  /* ---------- Tokens ---------- */
+  .swatch-row{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:40px;}
+  .swatch{width:150px;border-radius:10px;overflow:hidden;border:1px solid var(--hair);}
+  .swatch-fill{height:72px;}
+  .swatch-label{padding:10px 12px;background:var(--panel);font-family:var(--mono);font-size:11px;}
+  .swatch-label b{display:block;font-size:12px;color:var(--text);margin-bottom:2px;}
+  .type-row{display:grid;grid-template-columns:1.2fr 1fr;gap:32px;margin-bottom:40px;}
+  .type-card{background:var(--panel);border:1px solid var(--hair);border-radius:12px;padding:26px 28px;}
+  .type-card .label{font-family:var(--mono);font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em;margin:0 0 12px;}
+  .type-card .sample-mono{font-family:var(--mono);font-size:28px;font-weight:600;margin:0 0 8px;}
+  .type-card .sample-sans{font-family:var(--sans);font-size:16px;color:var(--dim);line-height:1.6;margin:0;}
+  .badge-legend{display:flex;gap:10px;flex-wrap:wrap;}
+
+  /* ---------- Badges / pills ---------- */
+  .pill{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;letter-spacing:.03em;padding:4px 10px 4px 8px;border-radius:20px;white-space:nowrap;}
+  .pill .dot{width:6px;height:6px;border-radius:50%;}
+  .pill-idle{background:var(--gray-dim);color:var(--dim);}       .pill-idle .dot{background:var(--gray);}
+  .pill-planned{background:var(--violet-dim);color:var(--violet);} .pill-planned .dot{background:var(--violet);}
+  .pill-running{background:var(--amber-dim);color:var(--amber);}  .pill-running .dot{background:var(--amber);}
+  .pill-done{background:var(--teal-dim);color:var(--teal);}       .pill-done .dot{background:var(--teal);}
+  .pill-failed{background:var(--red-dim);color:var(--red);}       .pill-failed .dot{background:var(--red);}
+  .pill-rejected{background:transparent;color:var(--red);border:1px solid var(--red);} .pill-rejected .dot{background:var(--red);}
+
+  /* ---------- Browser frame ---------- */
+  .frame{background:var(--panel);border:1px solid var(--hair);border-radius:14px;overflow:hidden;}
+  .frame-bar{display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--panel2);border-bottom:1px solid var(--hair);}
+  .frame-dots{display:flex;gap:6px;}
+  .frame-dots i{width:9px;height:9px;border-radius:50%;background:var(--hair);display:block;}
+  .frame-url{font-family:var(--mono);font-size:12px;color:var(--faint);background:var(--ink);border:1px solid var(--hair-soft);border-radius:6px;padding:5px 12px;}
+  .frame-body{padding:28px;}
+
+  /* app topbar inside mockups */
+  .app-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:26px;}
+  .app-brand{font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:.06em;}
+  .app-brand span{color:var(--amber);}
+  .app-nav{display:flex;gap:22px;font-family:var(--mono);font-size:12px;color:var(--dim);}
+  .app-nav .on{color:var(--text);}
+  .app-workdir{font-family:var(--mono);font-size:11px;color:var(--faint);}
+
+  /* ---------- Dashboard mockup ---------- */
+  .dash-grid{display:grid;grid-template-columns:260px 1fr;gap:24px;}
+  .card{background:var(--panel2);border:1px solid var(--hair);border-radius:12px;padding:18px 20px;}
+  .card h4{margin:0 0 10px;font-size:13px;font-weight:600;font-family:var(--mono);}
+  .textarea-mock{background:var(--ink);border:1px solid var(--hair-soft);border-radius:8px;height:96px;padding:10px 12px;font-size:12px;color:var(--faint);font-family:var(--sans);margin-bottom:12px;}
+  .btn{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:12px;font-weight:500;border-radius:8px;padding:9px 14px;border:1px solid transparent;cursor:default;}
+  .btn-amber{background:var(--amber);color:#241a06;}
+  .btn-ghost{background:transparent;border-color:var(--hair-soft);color:var(--dim);}
+  .btn-danger{background:transparent;border-color:var(--red);color:var(--red);}
+  .helper{font-size:11px;color:var(--faint);margin-top:10px;line-height:1.5;}
+  .task-cards{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .task-card{background:var(--panel2);border:1px solid var(--hair);border-radius:12px;padding:16px 18px;}
+  .task-card-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+  .task-id{font-family:var(--mono);font-size:12px;color:var(--dim);}
+  .task-prompt{font-size:13px;color:var(--text);margin:0 0 12px;line-height:1.45;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .mini-rail{display:flex;align-items:center;gap:3px;margin-bottom:12px;}
+  .mini-rail i{flex:1;height:3px;border-radius:2px;background:var(--hair-soft);display:block;}
+  .mini-rail i.on{background:var(--amber);}
+  .mini-rail i.past{background:var(--teal);}
+  .mini-rail i.fail{background:var(--red);}
+  .task-meta{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-bottom:12px;}
+  .task-links{display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11px;}
+  .task-links a{color:var(--dim);}
+  .task-links .cancel{color:var(--red);}
+
+  /* ---------- Detail mockup ---------- */
+  .detail-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;}
+  .detail-title{font-family:var(--mono);font-size:18px;font-weight:600;}
+  .detail-rail{margin-bottom:24px;}
+  .prompt-block{background:var(--ink);border-left:2px solid var(--amber);border-radius:0 8px 8px 0;padding:14px 18px;font-size:13px;color:var(--dim);line-height:1.55;margin-bottom:14px;}
+  .chip-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:28px;}
+  .chip{font-family:var(--mono);font-size:11px;color:var(--faint);background:var(--panel2);border:1px solid var(--hair-soft);border-radius:6px;padding:5px 10px;}
+  .accordion{border:1px solid var(--hair);border-radius:12px;overflow:hidden;margin-bottom:14px;}
+  .accordion-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:var(--panel2);font-family:var(--mono);font-size:12.5px;font-weight:500;}
+  .accordion-head .chev{color:var(--faint);font-size:11px;}
+  .accordion-body{padding:18px 20px;background:var(--panel);border-top:1px solid var(--hair);}
+  .story-priority{display:inline-block;font-family:var(--mono);font-size:10.5px;color:var(--violet);background:var(--violet-dim);border-radius:5px;padding:2px 7px;margin-bottom:10px;}
+  .story-desc{font-size:13px;color:var(--dim);line-height:1.55;margin:0 0 12px;}
+  .criteria{list-style:none;margin:0;padding:0;font-size:12.5px;color:var(--dim);}
+  .criteria li{display:flex;gap:8px;padding:4px 0;}
+  .criteria li:before{content:"✓";color:var(--teal);font-family:var(--mono);}
+  .finding-row{display:flex;gap:10px;font-size:12.5px;color:var(--dim);padding:6px 0;border-bottom:1px solid var(--hair-soft);}
+  .finding-row:last-child{border-bottom:none;}
+  .finding-row .tag{font-family:var(--mono);font-size:10px;color:var(--teal);flex:0 0 62px;}
+  .placeholder-text{font-size:12.5px;color:var(--faint);font-style:italic;}
+  .detail-footer{display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11.5px;padding-top:18px;border-top:1px solid var(--hair);}
+
+  /* ---------- Log mockup ---------- */
+  .log-panes{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+  .log-pane{background:var(--panel2);border:1px solid var(--hair);border-radius:12px;overflow:hidden;}
+  .log-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--hair);}
+  .log-path{font-family:var(--mono);font-size:10.5px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .switch{width:28px;height:16px;border-radius:9px;background:var(--teal-dim);position:relative;flex:0 0 auto;}
+  .switch:after{content:"";position:absolute;top:2px;left:14px;width:12px;height:12px;border-radius:50%;background:var(--teal);}
+  .log-filter{display:flex;justify-content:space-between;align-items:center;padding:8px 14px;font-family:var(--mono);font-size:10.5px;color:var(--faint);background:var(--ink);border-bottom:1px solid var(--hair-soft);}
+  .log-filter input{background:transparent;border:none;color:var(--dim);font-family:var(--mono);font-size:10.5px;width:120px;}
+  .log-lines{padding:12px 14px;font-family:var(--mono);font-size:11px;line-height:1.85;color:var(--dim);}
+  .log-lines .lv-info{color:var(--dim);}
+  .log-lines .lv-warn{color:var(--amber);}
+  .log-lines .lv-ok{color:var(--teal);}
+  .log-lines .ts{color:var(--faint);}
+
+  /* ---------- Diff mockup ---------- */
+  .diff-banner{font-family:var(--mono);font-size:11px;color:var(--faint);background:var(--panel2);border:1px solid var(--hair-soft);border-radius:8px;padding:9px 14px;margin-bottom:14px;}
+  .commit-row{display:flex;gap:14px;align-items:center;padding:10px 16px;border:1px solid var(--hair);border-radius:10px;margin-bottom:8px;font-family:var(--mono);font-size:11.5px;}
+  .commit-sha{color:var(--amber);}
+  .commit-meta{color:var(--faint);}
+  .commit-subject{color:var(--text);font-family:var(--sans);flex:1;font-size:12.5px;}
+  .diff-block{background:var(--ink);border:1px solid var(--hair);border-radius:10px;padding:14px 16px;font-family:var(--mono);font-size:11.5px;line-height:1.8;margin-top:10px;}
+  .diff-block .add{color:var(--teal);background:var(--teal-dim);display:block;padding:0 6px;border-radius:3px;}
+  .diff-block .rem{color:var(--red);background:var(--red-dim);display:block;padding:0 6px;border-radius:3px;}
+  .diff-block .ctx{color:var(--faint);display:block;padding:0 6px;}
+  .empty-callout{margin-top:20px;background:var(--panel2);border:1px dashed var(--hair-soft);border-radius:10px;padding:16px 18px;font-size:12.5px;color:var(--faint);}
+  .empty-callout b{color:var(--dim);font-family:var(--mono);font-size:11px;display:block;margin-bottom:6px;}
+
+  /* ---------- Settings mockup ---------- */
+  .settings-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:18px;}
+  .input-mock{display:flex;align-items:center;justify-content:space-between;background:var(--ink);border:1px solid var(--hair-soft);border-radius:8px;padding:9px 12px;font-family:var(--mono);font-size:11px;color:var(--dim);margin-bottom:12px;}
+  .status-line{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);padding:5px 0;border-bottom:1px solid var(--hair-soft);}
+  .status-line:last-child{border-bottom:none;}
+  .toast{display:flex;justify-content:space-between;align-items:center;background:var(--teal-dim);border:1px solid var(--teal);color:var(--teal);border-radius:8px;padding:11px 16px;font-family:var(--mono);font-size:12px;}
+
+  /* ---------- Rationale footer ---------- */
+  .rationale-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;}
+  .rationale-item h5{font-family:var(--mono);font-size:12.5px;color:var(--amber);margin:0 0 8px;}
+  .rationale-item p{font-size:13px;color:var(--dim);line-height:1.6;margin:0;}
+</style>
+</head>
+<body>
+<div class="deck">
+
+  <!-- COVER -->
+  <header class="cover">
+    <p class="eyebrow">alps-gui · redesign proposal</p>
+    <h1 class="title">Control <span>Rail</span></h1>
+    <p class="tagline">A visual system for the ALPS task orchestrator built around the one thing that actually matters on every screen: which phase a task is in, and what's moving. Every task rides the same five-stop line — plan, implement, review, judge, done.</p>
+    <div class="meta-row">
+      <div><b>Framework</b> Dioxus 0.7 fullstack</div>
+      <div><b>Targets</b> Web · desktop · mobile</div>
+      <div><b>Components</b> dioxuslabs.com/components primitives</div>
+      <div><b>Pages redesigned</b> 5</div>
+    </div>
+    <div class="rail">
+      <div class="rail-node done"><div class="rail-dot"></div><div class="rail-label">Plan</div></div>
+      <div class="rail-line filled"></div>
+      <div class="rail-node active"><div class="rail-dot"></div><div class="rail-label">Implement</div></div>
+      <div class="rail-line"></div>
+      <div class="rail-node"><div class="rail-dot"></div><div class="rail-label">Review</div></div>
+      <div class="rail-line"></div>
+      <div class="rail-node"><div class="rail-dot"></div><div class="rail-label">Judge</div></div>
+      <div class="rail-line"></div>
+      <div class="rail-node"><div class="rail-dot"></div><div class="rail-label">Done</div></div>
+    </div>
+  </header>
+
+  <!-- TOKENS -->
+  <section class="section">
+    <div class="section-head">
+      <div><p class="section-num">01 — Foundations</p><h2 class="section-title">Palette, type, signal states</h2></div>
+      <p class="section-sub">Colors are borrowed from rail signal lights, not decoration — amber means running, teal means clear, red means stopped. The same three colors carry meaning on every page.</p>
+    </div>
+    <div class="swatch-row">
+      <div class="swatch"><div class="swatch-fill" style="background:#12151b"></div><div class="swatch-label"><b>Ink</b>#12151B</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:#20242f"></div><div class="swatch-label"><b>Panel</b>#20242F</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:#e8a23d"></div><div class="swatch-label"><b>Amber · running</b>#E8A23D</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:#3fb88f"></div><div class="swatch-label"><b>Teal · done</b>#3FB88F</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:#e15a4f"></div><div class="swatch-label"><b>Red · failed</b>#E15A4F</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:#8f92e0"></div><div class="swatch-label"><b>Violet · planned</b>#8F92E0</div></div>
+    </div>
+    <div class="type-row">
+      <div class="type-card">
+        <p class="label">Display / data — IBM Plex Mono</p>
+        <p class="sample-mono">task-042 · Running</p>
+        <p class="sample-sans">Every identifier, status, timestamp and path is set in mono — this is a CLI-native tool, and the UI should read like the terminal output it's standing in for.</p>
+      </div>
+      <div class="type-card">
+        <p class="label">Body — IBM Plex Sans</p>
+        <p class="sample-mono" style="font-family:var(--sans);font-size:16px;font-weight:600;">Prompts, descriptions, findings</p>
+        <p class="sample-sans">Human-written content — the task prompt, the plan description, review findings — stays in a plain grotesk so it's never confused with system data.</p>
+      </div>
+    </div>
+    <div class="badge-legend">
+      <span class="pill pill-idle"><i class="dot"></i>Idle</span>
+      <span class="pill pill-planned"><i class="dot"></i>Planned</span>
+      <span class="pill pill-running"><i class="dot"></i>Running</span>
+      <span class="pill pill-done"><i class="dot"></i>Done</span>
+      <span class="pill pill-failed"><i class="dot"></i>Failed</span>
+      <span class="pill pill-rejected"><i class="dot"></i>Rejected</span>
+    </div>
+  </section>
+
+  <!-- DASHBOARD -->
+  <section class="section">
+    <div class="section-head">
+      <div><p class="section-num">02 — Dashboard</p><h2 class="section-title">/ · task list + new task</h2></div>
+      <p class="section-sub">Cards get a mini rail instead of a status word alone — you can scan six tasks and see where each one sits in the pipeline without reading a single label.</p>
+    </div>
+    <div class="frame">
+      <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><div class="frame-url">alps.local/</div></div>
+      <div class="frame-body">
+        <div class="app-top">
+          <div class="app-brand">ALPS <span>v0.1.0</span></div>
+          <div class="app-nav"><span class="on">Dashboard</span><span>New task</span><span>Settings</span></div>
+          <div class="app-workdir">~/Development/alps-runs</div>
+        </div>
+        <div class="dash-grid">
+          <div class="card">
+            <h4>New task</h4>
+            <div class="textarea-mock">Add rate limiting to the /api/tasks endpoint, 429 on burst&gt;20/min…</div>
+            <div class="btn btn-amber">Run task ↗</div>
+            <p class="helper">Spawns alps run --prompt-file. Watch it land on the rail below once it starts.</p>
+          </div>
+          <div class="task-cards">
+            <div class="task-card">
+              <div class="task-card-top"><span class="task-id">task-038</span><span class="pill pill-done"><i class="dot"></i>Done</span></div>
+              <p class="task-prompt">Add CSV export to the reports page</p>
+              <div class="mini-rail"><i class="past"></i><i class="past"></i><i class="past"></i><i class="past"></i><i class="past"></i></div>
+              <div class="task-meta">attempt 1 · 6m elapsed · started 09:14</div>
+              <div class="task-links"><a>Open log →</a><a>View diff →</a></div>
+            </div>
+            <div class="task-card">
+              <div class="task-card-top"><span class="task-id">task-042</span><span class="pill pill-running"><i class="dot"></i>Running</span></div>
+              <p class="task-prompt">Add rate limiting to /api/tasks</p>
+              <div class="mini-rail"><i class="past"></i><i class="on"></i><i></i><i></i><i></i></div>
+              <div class="task-meta">attempt 1 · 2m elapsed · started 10:02</div>
+              <div class="task-links"><a>Open log →</a><span class="cancel">Cancel</span></div>
+            </div>
+            <div class="task-card">
+              <div class="task-card-top"><span class="task-id">task-039</span><span class="pill pill-planned"><i class="dot"></i>Planned</span></div>
+              <p class="task-prompt">Migrate settings store to sqlite</p>
+              <div class="mini-rail"><i class="past"></i><i></i><i></i><i></i><i></i></div>
+              <div class="task-meta">attempt 0 · — elapsed · started —</div>
+              <div class="task-links"><a>Open log →</a><a>View diff →</a></div>
+            </div>
+            <div class="task-card">
+              <div class="task-card-top"><span class="task-id">task-035</span><span class="pill pill-failed"><i class="dot"></i>Failed</span></div>
+              <p class="task-prompt">Refactor telemetry writer to async</p>
+              <div class="mini-rail"><i class="past"></i><i class="past"></i><i class="fail"></i><i></i><i></i></div>
+              <div class="task-meta">attempt 2 · 11m elapsed · started 08:40</div>
+              <div class="task-links"><a>Open log →</a><a>View diff →</a></div>
+            </div>
+            <div class="task-card">
+              <div class="task-card-top"><span class="task-id">task-041</span><span class="pill pill-idle"><i class="dot"></i>Idle</span></div>
+              <p class="task-prompt">Draft: revisit auth token refresh</p>
+              <div class="mini-rail"><i></i><i></i><i></i><i></i><i></i></div>
+              <div class="task-meta">attempt 0 · — elapsed · started —</div>
+              <div class="task-links"><a>Open log →</a><a>View diff →</a></div>
+            </div>
+            <div class="task-card">
+              <div class="task-card-top"><span class="task-id">task-030</span><span class="pill pill-rejected"><i class="dot"></i>Rejected</span></div>
+              <p class="task-prompt">Cache invalidation on task complete</p>
+              <div class="mini-rail"><i class="past"></i><i class="past"></i><i class="past"></i><i class="fail"></i><i></i></div>
+              <div class="task-meta">attempt 1 · 9m elapsed · started 07:55</div>
+              <div class="task-links"><a>Open log →</a><a>View diff →</a></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TASK DETAIL -->
+  <section class="section">
+    <div class="section-head">
+      <div><p class="section-num">03 — Task detail</p><h2 class="section-title">/tasks/&lt;id&gt; · plan, review, receipts</h2></div>
+      <p class="section-sub">The rail becomes the page header — full width, current phase lit. Plan / Review / Receipts move into accordions from the dioxus primitives library so the page stays short until you ask for detail.</p>
+    </div>
+    <div class="frame">
+      <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><div class="frame-url">alps.local/tasks/task-042</div></div>
+      <div class="frame-body">
+        <div class="app-top">
+          <div class="app-brand">ALPS <span>v0.1.0</span></div>
+          <div class="app-nav"><span>Dashboard</span><span class="on">task-042</span><span>Settings</span></div>
+          <div class="app-workdir">~/Development/alps-runs</div>
+        </div>
+        <div class="detail-head">
+          <div class="detail-title">task-042 <span style="color:var(--faint);font-weight:400;">— add rate limiting to /api/tasks</span></div>
+          <span class="pill pill-running"><i class="dot"></i>Running</span>
+        </div>
+        <div class="detail-rail rail">
+          <div class="rail-node done"><div class="rail-dot"></div><div class="rail-label">Plan</div></div>
+          <div class="rail-line filled"></div>
+          <div class="rail-node active"><div class="rail-dot"></div><div class="rail-label">Implement</div></div>
+          <div class="rail-line"></div>
+          <div class="rail-node"><div class="rail-dot"></div><div class="rail-label">Review</div></div>
+          <div class="rail-line"></div>
+          <div class="rail-node"><div class="rail-dot"></div><div class="rail-label">Judge</div></div>
+          <div class="rail-line"></div>
+          <div class="rail-node"><div class="rail-dot"></div><div class="rail-label">Done</div></div>
+        </div>
+        <div class="prompt-block">"Add rate limiting to the /api/tasks endpoint — 429 on burst greater than 20 requests/min per client, configurable via env."</div>
+        <div class="chip-row">
+          <span class="chip">attempt 1</span><span class="chip">elapsed 2m</span><span class="chip">started 10:02</span><span class="chip">branch alps/task-042</span>
+        </div>
+        <div class="accordion">
+          <div class="accordion-head"><span>Plan</span><span class="chev">⌄</span></div>
+          <div class="accordion-body">
+            <span class="story-priority">P1</span>
+            <p class="story-desc">Introduce a token-bucket limiter middleware ahead of the /api/tasks router, keyed by client IP, with a configurable RATE_LIMIT_PER_MIN env var.</p>
+            <ul class="criteria">
+              <li>Requests over the limit receive HTTP 429 with a Retry-After header</li>
+              <li>Limit is configurable via RATE_LIMIT_PER_MIN, default 20</li>
+              <li>Existing endpoint tests continue to pass unmodified</li>
+            </ul>
+          </div>
+        </div>
+        <div class="accordion">
+          <div class="accordion-head"><span style="color:var(--faint)">Review</span><span class="chev">⌄</span></div>
+          <div class="accordion-body"><p class="placeholder-text">Review not yet generated — appears once the implement phase completes.</p></div>
+        </div>
+        <div class="accordion">
+          <div class="accordion-head"><span style="color:var(--faint)">Receipts</span><span class="chev">⌄</span></div>
+          <div class="accordion-body"><p class="placeholder-text">Receipts only appear once the Judge phase accepts.</p></div>
+        </div>
+        <div class="detail-footer">
+          <div><a>Open log →</a> &nbsp; <a>View diff →</a></div>
+          <span style="color:var(--red)">Cancel</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TASK LOG -->
+  <section class="section">
+    <div class="section-head">
+      <div><p class="section-num">04 — Task log</p><h2 class="section-title">/tasks/&lt;id&gt;/log · dual-pane tail</h2></div>
+      <p class="section-sub">Kept side by side as specified — orchestrator log left, per-task agent activity right — with a Switch primitive for pause and log levels color-matched to the signal palette.</p>
+    </div>
+    <div class="frame">
+      <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><div class="frame-url">alps.local/tasks/task-042/log</div></div>
+      <div class="frame-body">
+        <div class="app-top">
+          <div class="app-brand">ALPS <span>v0.1.0</span></div>
+          <div class="app-nav"><span>Dashboard</span><span class="on">task-042 / log</span><span>Settings</span></div>
+          <div class="app-workdir">~/Development/alps-runs</div>
+        </div>
+        <div class="log-panes">
+          <div class="log-pane">
+            <div class="log-toolbar"><span class="log-path">~/.alps-telemetry.log</span><div class="switch"></div></div>
+            <div class="log-filter"><input placeholder="filter…"><span>214 of 214 (cap 1000)</span></div>
+            <div class="log-lines">
+              <div><span class="ts">10:02:14</span> <span class="lv-info">tick task-042 phase=implement</span></div>
+              <div><span class="ts">10:02:15</span> <span class="lv-ok">worker attached pid 88214</span></div>
+              <div><span class="ts">10:02:41</span> <span class="lv-warn">retry: git fetch origin (1/3)</span></div>
+              <div><span class="ts">10:02:44</span> <span class="lv-info">tick task-042 phase=implement</span></div>
+              <div><span class="ts">10:03:02</span> <span class="lv-info">tick task-038 phase=done</span></div>
+            </div>
+          </div>
+          <div class="log-pane">
+            <div class="log-toolbar"><span class="log-path">tasks/task-042/implementation/ralph/.ralph-stderr.log</span><div class="switch"></div></div>
+            <div class="log-filter"><input placeholder="filter…"><span>86 of 86 (cap 1000)</span></div>
+            <div class="log-lines">
+              <div><span class="ts">10:02:16</span> <span class="lv-info">ralph: reading plan.json</span></div>
+              <div><span class="ts">10:02:19</span> <span class="lv-info">codex: drafting middleware.rs</span></div>
+              <div><span class="ts">10:02:53</span> <span class="lv-ok">cargo check passed</span></div>
+              <div><span class="ts">10:03:01</span> <span class="lv-info">codex: writing rate_limit tests</span></div>
+              <div><span class="ts">10:03:20</span> <span class="lv-warn">cargo test: 1 flaky retry</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TASK DIFF -->
+  <section class="section">
+    <div class="section-head">
+      <div><p class="section-num">05 — Task diff</p><h2 class="section-title">/tasks/&lt;id&gt;/diff · commits vs main</h2></div>
+      <p class="section-sub">Commits become accordion rows so the diff body only appears on demand. The "no commits yet" empty state stays a first-class, calm card — not an error.</p>
+    </div>
+    <div class="frame">
+      <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><div class="frame-url">alps.local/tasks/task-038/diff</div></div>
+      <div class="frame-body">
+        <div class="app-top">
+          <div class="app-brand">ALPS <span>v0.1.0</span></div>
+          <div class="app-nav"><span>Dashboard</span><span class="on">task-038 / diff</span><span>Settings</span></div>
+          <div class="app-workdir">~/Development/alps-runs</div>
+        </div>
+        <div class="diff-banner">3 commits shown · alps/task-038..main</div>
+        <div class="commit-row"><span class="commit-sha">a91f3c2</span><span class="commit-subject">Add CSV export endpoint + streaming writer</span><span class="commit-meta">ralph · 09:20</span></div>
+        <div class="commit-row"><span class="commit-sha">1e0b7aa</span><span class="commit-subject">Add column ordering config</span><span class="commit-meta">ralph · 09:31</span></div>
+        <div class="commit-row" style="border-color:var(--amber)">
+          <span class="commit-sha">5cf28de</span><span class="commit-subject">Fix null handling in export writer</span><span class="commit-meta">ralph · 09:44</span>
+        </div>
+        <div class="diff-block">
+<span class="ctx">src/export/writer.rs</span>
+<span class="rem">- let value = row.get(col).unwrap();</span>
+<span class="add">+ let value = row.get(col).unwrap_or_default();</span>
+<span class="ctx">  writer.write_field(value)?;</span>
+        </div>
+        <div class="empty-callout">
+          <b>Empty state — task-041</b>
+          No commits on alps/task-041 yet. Ralph hasn't pushed commits for this task. This confirms the task hasn't been implemented, not that the page is broken.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="section">
+    <div class="section-head">
+      <div><p class="section-num">06 — Settings</p><h2 class="section-title">/settings · workdir, key, build</h2></div>
+      <p class="section-sub">Three cards stay three cards — the grouping was already right. Status colors now match the same signal palette used for task state, so "detected" reads as the same green-family teal as "done".</p>
+    </div>
+    <div class="frame">
+      <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><div class="frame-url">alps.local/settings</div></div>
+      <div class="frame-body">
+        <div class="app-top">
+          <div class="app-brand">ALPS <span>v0.1.0</span></div>
+          <div class="app-nav"><span>Dashboard</span><span>New task</span><span class="on">Settings</span></div>
+          <div class="app-workdir">~/Development/alps-runs</div>
+        </div>
+        <div class="settings-grid">
+          <div class="card">
+            <h4>Workdir</h4>
+            <div class="input-mock"><span>~/Development/alps-runs</span></div>
+            <div class="btn btn-ghost">Save</div>
+          </div>
+          <div class="card">
+            <h4>MINIMAX_API_KEY</h4>
+            <div class="status-line"><span>Server</span><span class="pill pill-done"><i class="dot"></i>Detected</span></div>
+            <div class="status-line"><span>Wasm client</span><span class="pill pill-idle"><i class="dot"></i>n/a — preview</span></div>
+          </div>
+          <div class="card">
+            <h4>About</h4>
+            <div class="status-line"><span>Version</span><span>1.0.0</span></div>
+            <div class="status-line"><span>Commit</span><span>e4855aa</span></div>
+            <div class="status-line"><span>Built</span><span>2026-08-28</span></div>
+          </div>
+        </div>
+        <div class="toast"><span>Saved ~/Development/alps-runs</span><span>×</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- RATIONALE -->
+  <footer class="section" style="border-bottom:none;">
+    <div class="section-head">
+      <div><p class="section-num">07 — Component mapping</p><h2 class="section-title">Where dioxuslabs/components did the work</h2></div>
+    </div>
+    <div class="rationale-grid">
+      <div class="rationale-item"><h5>Badge → StatusPill</h5><p>The 6 task states map directly onto the Badge primitive's variant prop — color is data, not styling per-instance.</p></div>
+      <div class="rationale-item"><h5>Accordion → Plan / Review / Receipts</h5><p>Collapsible sections replace three always-expanded blocks, so an idle task's detail page is three lines tall instead of a wall of placeholders.</p></div>
+      <div class="rationale-item"><h5>Switch → Pause / Resume</h5><p>The log page's boolean toggle becomes the accessible Switch primitive instead of a text link, with the same built-in keyboard support.</p></div>
+      <div class="rationale-item"><h5>Card → task cards, settings cards</h5><p>One Card component, restyled per surface, replaces bespoke divs across Dashboard and Settings.</p></div>
+      <div class="rationale-item"><h5>Toast → Save / cancel feedback</h5><p>Settings' green/red confirmation banners and any future cancel confirmation share one Toast primitive and one color contract.</p></div>
+      <div class="rationale-item"><h5>Accordion → commit rows</h5><p>TaskDiff's commit list becomes accordion rows so the unified diff body — the expensive part to render and read — stays opt-in per commit.</p></div>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

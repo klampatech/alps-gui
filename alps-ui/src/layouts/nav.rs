@@ -8,128 +8,126 @@
 //! body — without that outlet, the router has no place to render the page
 //! content and `App` would show only the navbar.
 //!
-//! ## Responsive behavior
+//! ## Control Rail redesign (deck §02 / §06)
 //!
-//! Per DESIGN.md §3 + SPEC §5:
+//! Per docs/alps-gui-redesign-deck.html §02, the navbar is dark, mono,
+//! and shows the brand `ALPS v0.1.0` (amber accent on the version), the
+//! primary nav links, and the workdir path on the right. The page
+//! chrome (`bg-ink` via `var(--ink)`) is set on the outer container so
+//! every page inherits it.
 //!
-//! | Breakpoint | Width    | Nav shape                                       |
-//! |------------|----------|-------------------------------------------------|
-//! | (default)  | 0+       | Single column; nav links COLLAPSE to a hamburger button (`< sm:`) |
-//! | `sm:`      | >= 640px | Nav is horizontal (links visible)               |
+//! ## Mobile menu (deferred)
 //!
-//! Tailwind's responsive variants drive the visibility — no JS-side
-//! `window.matchMedia` branching. The hamburger button is `sm:hidden`
-//! (visible only < sm), and the inline nav is `hidden sm:flex`
-//! (visible only on sm+).
+//! The deck omits the hamburger menu — desktop nav only. We keep the
+//! `sm:hidden` button as a placeholder for a follow-up PR. The button
+//! is decorative on < sm (no click handler).
 //!
-//! ## Interactivity (intentionally NOT wired in US-003)
+//! ## Workdir chip
 //!
-//! The hamburger button has no click handler in this story. Toggling a
-//! mobile menu open/closed requires a `Signal<bool>` + `use_signal` that
-//! the SPEC defers until US-006+ (when NavState context is introduced).
-//! For US-003 the hamburger is decorative: it correctly appears on
-//! < sm and disappears on sm+ — that's the load-bearing responsive
-//! behavior — but pressing it does nothing yet.
+//! The navbar reads the workdir from the shared `state::Workdir`
+//! context and renders it as a mono `<span>` on the right. Settings'
+//! Save handler updates the context, which re-renders this layout.
 //!
-//! ## Accessibility
+//! ## Why `var(--ink)` instead of a Tailwind arbitrary value
 //!
-//! The hamburger button carries `aria-label="Open menu"` so screen
-//! readers have a name even though the icon is text-only. The hidden-on-
-//! desktop nav carries `aria-label="Primary"` for the same reason.
-//!
-//! ## Why no NavState context yet
-//!
-//! SPEC §6.6 / acceptance criteria mention a `NavState` context that the
-//! NavBar reads via `use_context::<NavState>()`. That context tracks the
-//! active workdir + orchestrator API URL + MINIMAX_API_KEY indicator.
-//! None of those settings surface exist yet — US-008 confirms Settings is
-//! a stub for the smoke — so the NavBar in US-003 hard-codes the brand
-//! line and the three primary nav links. A follow-up story wires
-//! `use_context_provider(NavState::default)` in `App` and adds a workdir
-//! picker + version chip.
+//! The NavBar's outer container is a single block — the ink bg applies
+//! to a div the user sees on every page. Setting it via a CSS custom
+//! property (defined in `assets/main.css`) means we don't need to ship
+//! a new Tailwind class for every redesign color. The other dark
+//! surfaces (`var(--panel2)`, `var(--hair)`) work the same way.
 
 use dioxus::prelude::*;
 use dioxus::router::components::{Link, Outlet};
 
 use crate::routes::Route;
+use crate::state;
 
-/// Responsive top-bar layout.
-///
-/// Layout structure (outer -> inner):
-///
-/// ```text
-/// <div min-h-screen flex flex-col>
-///   <header sticky top-0 z-10 bg-white border-b border-slate-200 shadow-sm>
-///     <div flex items-center justify-between p-4>
-///       <brand>                        # always visible
-///         <Link to=Dashboard>ALPS</Link>
-///         <span> v0.1.0 </span>
-///       </brand>
-///       <nav hidden sm:flex>           # visible only on sm+
-///         <Link to=Dashboard>Dashboard</Link>
-///         <Link to=NewTask>New task</Link>
-///         <Link to=Settings>Settings</Link>
-///       </nav>
-///       <button sm:hidden>             # visible only < sm
-///         aria-label="Open menu"
-///         hamburger glyph
-///       </button>
-///     </div>
-///   </header>
-///   <main flex-1>
-///     <Outlet::<Route> />              # the matched child route renders here
-///   </main>
-/// </div>
-/// ```
 #[component]
 pub fn NavBar() -> Element {
+    // The workdir is the reactive thing — read it once at render time,
+    // subscribe via `cloned()` so changes from the Settings page's Save
+    // button update the chip. (Same pattern as M4-proper's reactivity.)
+    let workdir_signal = use_context::<state::Workdir>().signal();
+
     rsx! {
-        div { class: "min-h-screen flex flex-col bg-slate-50",
-            header { class: "sticky top-0 z-10 bg-white border-b border-slate-200 shadow-sm",
-                div { class: "flex items-center justify-between p-4",
-                    div { class: "flex items-baseline gap-3",
+        div {
+            class: "min-h-screen flex flex-col",
+            style: "background:var(--ink);color:var(--text);",
+            header {
+                class: "sticky top-0 z-10",
+                style: "background:var(--panel);border-bottom:1px solid var(--hair);",
+                div {
+                    class: "flex items-center justify-between gap-4 px-4 sm:px-6 lg:px-8 py-3",
+                    // Brand — mono + amber accent on the version chip.
+                    div {
+                        class: "flex items-baseline gap-3",
                         Link {
                             to: Route::Dashboard {},
-                            class: "text-lg font-semibold text-slate-800 hover:text-slate-900",
-                            "ALPS"
+                            style: "font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:.06em;color:var(--text);text-decoration:none;",
+                            "ALPS "
+                            span {
+                                style: "color:var(--amber);",
+                                "v0.1.0"
+                            }
                         }
-                        span { class: "text-xs text-slate-500", "v0.1.0" }
                     }
+                    // Nav links — desktop only (deck §02 shows only desktop).
+                    // The `sm:flex` activates >= 640px; below that the
+                    // hamburger placeholder is the only visible element.
                     nav {
-                        class: "hidden sm:flex items-center gap-2",
+                        class: "hidden sm:flex items-center gap-6",
+                        style: "font-family:var(--mono);font-size:12px;",
                         "aria-label": "Primary",
                         Link {
                             to: Route::Dashboard {},
-                            class: "px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-100",
+                            style: "color:var(--dim);text-decoration:none;",
+                            active_class: "color:var(--text);",
                             "Dashboard"
                         }
                         Link {
                             to: Route::NewTask {},
-                            class: "px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-100",
+                            style: "color:var(--dim);text-decoration:none;",
+                            active_class: "color:var(--text);",
                             "New task"
                         }
                         Link {
                             to: Route::Settings {},
-                            class: "px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-100",
+                            style: "color:var(--dim);text-decoration:none;",
+                            active_class: "color:var(--text);",
                             "Settings"
                         }
                     }
-                    button {
-                        // sm:hidden → visible below 640px only.
-                        // `aria-label` + `aria-expanded` give the button a name
-                        // for assistive tech even though it has no label text.
-                        r#type: "button",
-                        class: "sm:hidden inline-flex items-center justify-center p-2 rounded-md text-slate-700 hover:bg-slate-100",
-                        "aria-label": "Open menu",
-                        "aria-expanded": "false",
-                        // Unicode hamburger keeps the v1 build zero-dependency.
-                        // A future story swaps this for an inline SVG once the
-                        // mobile menu actually opens (needs a Signal<bool>).
-                        "☰"
+                    // Right side: workdir chip + hamburger placeholder.
+                    div {
+                        class: "flex items-center gap-3",
+                        // Workdir chip — mono + faint text. Truncated
+                        // with text-overflow:ellipsis on narrow viewports
+                        // (the chip is decorative on mobile).
+                        span {
+                            class: "alps-mono",
+                            style: "font-size:11px;color:var(--faint);max-width:36ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;",
+                            title: "{workdir_signal.cloned()}",
+                            "{workdir_signal.cloned()}"
+                        }
+                        button {
+                            // sm:hidden → visible below 640px only.
+                            // `aria-label` + `aria-expanded` give the
+                            // button a name for assistive tech even
+                            // though it has no label text. The deck
+                            // omits the hamburger; this is a placeholder
+                            // for the follow-up mobile-menu story.
+                            r#type: "button",
+                            class: "sm:hidden inline-flex items-center justify-center p-2 rounded-md",
+                            style: "color:var(--dim);",
+                            "aria-label": "Open menu",
+                            "aria-expanded": "false",
+                            "☰"
+                        }
                     }
                 }
             }
-            main { class: "flex-1",
+            main {
+                class: "flex-1",
                 Outlet::<Route> {}
             }
         }

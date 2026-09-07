@@ -216,7 +216,14 @@ for viewport in "${VIEWPORTS[@]}"; do
     mkdir -p "$SNAPSHOT_DIR/$viewport"
 
     for route in "${RESOLVED_ROUTES[@]}"; do
-        SAFE_NAME="$(echo "$route" | sed 's|/|_|g; s|^_||; s|^$|root|')"
+        # Mirror `route_to_safe_name` in alps-ui/tests/responsive_layout.rs:
+        #   "/" → "dashboard" (NOT an empty string, see test comment)
+        #   "/tasks/<id>/log" → "tasks_<id>_log"
+        if [[ "$route" == "/" ]]; then
+            SAFE_NAME="dashboard"
+        else
+            SAFE_NAME="$(echo "$route" | sed 's|/|_|g; s|^_||')"
+        fi
         OUT="$SNAPSHOT_DIR/$viewport/${SAFE_NAME}.png"
         URL="http://127.0.0.1:$PORT$route"
 

@@ -1,23 +1,27 @@
 //! `StatusPill` — color-coded badge for a `TaskState` (DESIGN.md §4).
 //!
-//! This is the load-bearing visual signal for every task row in the
-//! Dashboard and every state indicator in TaskDetail. Per DESIGN.md §2
-//! the pill is `rounded-full px-2.5 py-0.5 text-xs font-medium text-white`
-//! plus a single `bg-{color}` class picked from a 9-state match.
+//! Control Rail redesign (deck §01): the pill is now a dim background +
+//! colored text + leading dot, NOT the pre-redesign solid-color pill.
 //!
-//! ## Color palette (per DESIGN.md + acceptance criteria)
+//! ## Visual states (6 styles, per deck §01)
 //!
-//! | State         | Label        | Tailwind class  |
-//! |---------------|--------------|-----------------|
-//! | `Running`     | "Running"    | `bg-amber-500`  |
-//! | `Idle`        | "Idle"       | `bg-slate-400`  |
-//! | `Planned`     | "Planned"    | `bg-slate-400`  |
-//! | `Implemented` | "Implemented"| `bg-slate-400`  |
-//! | `Reviewed`    | "Reviewed"   | `bg-amber-500`  |
-//! | `Done`        | "Done"       | `bg-emerald-500`|
-//! | `Rejected`    | "Rejected"   | `bg-rose-500`   |
-//! | `Failed`      | "Failed"     | `bg-rose-700`   |
-//! | `Unknown`     | "Unknown"    | `bg-orange-500` |
+//! | Label       | bg             | text    |
+//! |-------------|----------------|---------|
+//! | `Idle`      | `--gray-dim`   | `--gray`|
+//! | `Planned`   | `--violet-dim` | `--violet`|
+//! | `Running`   | `--amber-dim`  | `--amber` |
+//! | `Done`      | `--teal-dim`   | `--teal` |
+//! | `Failed`    | `--red-dim`    | `--red`  |
+//! | `Rejected`  | transparent    | `--red` + 1px red border |
+//!
+//! ## State-to-style mapping (9-variant exhaustive match)
+//!
+//! `TaskState` has 9 variants. The pill collapses some of them to the
+//! same visual style (e.g. `Idle` and `Unknown` both use the gray
+//! `Idle` style; `Implemented` and `Reviewed` use the amber `Running`
+//! style — the user can tell them apart by the `M3c` Plan/Review
+//! accordions on TaskDetail). The match MUST stay exhaustive over
+//! all 9 variants — `cargo test` enforces this.
 //!
 //! ## Accessibility
 //!
@@ -25,30 +29,51 @@
 //! readers announce state changes when the pill is updated. The text
 //! label is always present (color is never the only signal).
 //!
-//! ## Why a `match` (and not a lookup table)
+//! ## Why a CSS class (`.pill-*`) instead of inline styles
 //!
-//! The exhaustive match forces a compiler error if `TaskState` ever
-//! gains a new variant — better than a runtime miss. `TaskState` has 9
-//! variants, and the match covers all 9.
+//! The 6 pill styles live in `assets/main.css` as `.pill-*` classes.
+//! Class-based styling keeps the JSX clean and lets us share the
+//! visual style across the Dashboard task cards, the TaskDetail
+//! header pill, and any future surfaces (toast notifications,
+//! settings status indicators). All 6 classes use the design deck's
+//! color tokens (no per-instance hex codes).
 use dioxus::prelude::*;
 use crate::domain::TaskState;
+
 #[component]
 pub fn StatusPill(state: TaskState) -> Element {
-    let (label, bg) = match state {
-        TaskState::Running => ("Running", "bg-amber-500"),
-        TaskState::Idle => ("Idle", "bg-slate-400"),
-        TaskState::Planned => ("Planned", "bg-slate-400"),
-        TaskState::Implemented => ("Implemented", "bg-slate-400"),
-        TaskState::Reviewed => ("Reviewed", "bg-amber-500"),
-        TaskState::Done => ("Done", "bg-emerald-500"),
-        TaskState::Rejected => ("Rejected", "bg-rose-500"),
-        TaskState::Failed => ("Failed", "bg-rose-700"),
-        TaskState::Unknown => ("Unknown", "bg-orange-500"),
+    // 9-variant exhaustive match — `cargo test` enforces every variant
+    // is handled. The deck collapses 9 states onto 6 visual styles;
+    // `Implemented` and `Reviewed` collapse onto `Running` style
+    // (amber — "still moving through the pipeline"); `Unknown` and
+    // `Idle` collapse onto `Idle` style (gray — "nothing to show").
+    let pill_class = match state {
+        TaskState::Running => "pill pill-running",
+        TaskState::Idle => "pill pill-idle",
+        TaskState::Planned => "pill pill-planned",
+        TaskState::Implemented => "pill pill-running",
+        TaskState::Reviewed => "pill pill-running",
+        TaskState::Done => "pill pill-done",
+        TaskState::Rejected => "pill pill-rejected",
+        TaskState::Failed => "pill pill-failed",
+        TaskState::Unknown => "pill pill-idle",
+    };
+    let label = match state {
+        TaskState::Running => "Running",
+        TaskState::Idle => "Idle",
+        TaskState::Planned => "Planned",
+        TaskState::Implemented => "Implemented",
+        TaskState::Reviewed => "Reviewed",
+        TaskState::Done => "Done",
+        TaskState::Rejected => "Rejected",
+        TaskState::Failed => "Failed",
+        TaskState::Unknown => "Unknown",
     };
     rsx! {
         span {
-            class: "rounded-full px-2.5 py-0.5 text-xs font-medium text-white {bg}",
+            class: "{pill_class}",
             role: "status",
+            span { class: "dot" }
             "{label}"
         }
     }
@@ -60,7 +85,7 @@ mod tests {
     //!
     //! Each of the 9 `TaskState` variants is rendered through the
     //! `StatusPill` component and asserted to contain the exact label
-    //! string from DESIGN.md §2 / US-004's color table.
+    //! string from the design deck + the right pill class.
     //!
     //! Rendering uses `dioxus_ssr::render_element`, which is a
     //! transitive dependency of `dioxus-fullstack` and is added as a
@@ -78,120 +103,61 @@ mod tests {
         })
     }
 
+    /// Every variant carries the matching label string.
     #[test]
-    fn running_pill_renders_running_label() {
-        let html = render(TaskState::Running);
-        assert!(
-            html.contains("Running"),
-            "Running pill should contain 'Running' label: {html}",
-        );
-        assert!(
-            html.contains("bg-amber-500"),
-            "Running pill should use bg-amber-500: {html}",
-        );
+    fn every_variant_renders_expected_label() {
+        let cases: &[(TaskState, &str)] = &[
+            (TaskState::Running, "Running"),
+            (TaskState::Idle, "Idle"),
+            (TaskState::Planned, "Planned"),
+            (TaskState::Implemented, "Implemented"),
+            (TaskState::Reviewed, "Reviewed"),
+            (TaskState::Done, "Done"),
+            (TaskState::Rejected, "Rejected"),
+            (TaskState::Failed, "Failed"),
+            (TaskState::Unknown, "Unknown"),
+        ];
+        for (state, expected) in cases {
+            let html = render(state.clone());
+            assert!(
+                html.contains(expected),
+                "{:?} pill should contain '{expected}' label: {html}",
+                state,
+            );
+        }
     }
 
+    /// Map each variant to the deck's pill class (6 styles; 9 variants
+    /// collapse onto them). Replaces the pre-redesign
+    /// `bg-{color}-{shade}` assertions.
     #[test]
-    fn idle_pill_renders_idle_label() {
-        let html = render(TaskState::Idle);
-        assert!(html.contains("Idle"), "Idle pill should contain 'Idle' label: {html}");
-        assert!(
-            html.contains("bg-slate-400"),
-            "Idle pill should use bg-slate-400: {html}",
-        );
+    fn every_variant_uses_expected_pill_class() {
+        let cases: &[(TaskState, &str)] = &[
+            (TaskState::Running, "pill-running"),
+            (TaskState::Idle, "pill-idle"),
+            (TaskState::Planned, "pill-planned"),
+            (TaskState::Implemented, "pill-running"),
+            (TaskState::Reviewed, "pill-running"),
+            (TaskState::Done, "pill-done"),
+            (TaskState::Rejected, "pill-rejected"),
+            (TaskState::Failed, "pill-failed"),
+            (TaskState::Unknown, "pill-idle"),
+        ];
+        for (state, expected_class) in cases {
+            let html = render(state.clone());
+            assert!(
+                html.contains(expected_class),
+                "{:?} pill should carry class '{expected_class}': {html}",
+                state,
+            );
+        }
     }
 
-    #[test]
-    fn planned_pill_renders_planned_label() {
-        let html = render(TaskState::Planned);
-        assert!(
-            html.contains("Planned"),
-            "Planned pill should contain 'Planned' label: {html}",
-        );
-        assert!(
-            html.contains("bg-slate-400"),
-            "Planned pill should use bg-slate-400: {html}",
-        );
-    }
-
-    #[test]
-    fn implemented_pill_renders_implemented_label() {
-        let html = render(TaskState::Implemented);
-        assert!(
-            html.contains("Implemented"),
-            "Implemented pill should contain 'Implemented' label: {html}",
-        );
-        assert!(
-            html.contains("bg-slate-400"),
-            "Implemented pill should use bg-slate-400: {html}",
-        );
-    }
-
-    #[test]
-    fn reviewed_pill_renders_reviewed_label() {
-        let html = render(TaskState::Reviewed);
-        assert!(
-            html.contains("Reviewed"),
-            "Reviewed pill should contain 'Reviewed' label: {html}",
-        );
-        assert!(
-            html.contains("bg-amber-500"),
-            "Reviewed pill should use bg-amber-500: {html}",
-        );
-    }
-
-    #[test]
-    fn done_pill_renders_done_label() {
-        let html = render(TaskState::Done);
-        assert!(html.contains("Done"), "Done pill should contain 'Done' label: {html}");
-        assert!(
-            html.contains("bg-emerald-500"),
-            "Done pill should use bg-emerald-500: {html}",
-        );
-    }
-
-    #[test]
-    fn rejected_pill_renders_rejected_label() {
-        let html = render(TaskState::Rejected);
-        assert!(
-            html.contains("Rejected"),
-            "Rejected pill should contain 'Rejected' label: {html}",
-        );
-        assert!(
-            html.contains("bg-rose-500"),
-            "Rejected pill should use bg-rose-500: {html}",
-        );
-    }
-
-    #[test]
-    fn failed_pill_renders_failed_label() {
-        let html = render(TaskState::Failed);
-        assert!(html.contains("Failed"), "Failed pill should contain 'Failed' label: {html}");
-        assert!(
-            html.contains("bg-rose-700"),
-            "Failed pill should use bg-rose-700: {html}",
-        );
-    }
-
-    #[test]
-    fn unknown_pill_renders_unknown_label() {
-        // The 9th variant — verified here rather than in FIXTURES per
-        // US-005 acceptance criterion #4.
-        let html = render(TaskState::Unknown);
-        assert!(
-            html.contains("Unknown"),
-            "Unknown pill should contain 'Unknown' label: {html}",
-        );
-        assert!(
-            html.contains("bg-orange-500"),
-            "Unknown pill should use bg-orange-500: {html}",
-        );
-    }
-
+    /// Accessibility — every pill carries `role="status"` for screen
+    /// readers. The label is always present so color isn't the only
+    /// signal.
     #[test]
     fn every_pill_carries_role_status_for_screen_readers() {
-        // DESIGN.md §6 accessibility — `role="status"` makes screen
-        // readers announce state changes. Verify every variant carries it.
         let states = [
             TaskState::Running,
             TaskState::Idle,
@@ -207,7 +173,33 @@ mod tests {
             let html = render(state);
             assert!(
                 html.contains(r#"role="status""#),
-                "{:?} pill should carry role=\"status\" for screen-reader announcements: {}",
+                "{:?} pill should carry role=\"status\": {}",
+                state,
+                html,
+            );
+        }
+    }
+
+    /// Leading dot — the deck §01 design has a `6px × 6px` colored
+    /// dot before the label. Assert each pill carries a `.dot` element.
+    #[test]
+    fn every_pill_has_leading_dot() {
+        let states = [
+            TaskState::Running,
+            TaskState::Idle,
+            TaskState::Planned,
+            TaskState::Implemented,
+            TaskState::Reviewed,
+            TaskState::Done,
+            TaskState::Rejected,
+            TaskState::Failed,
+            TaskState::Unknown,
+        ];
+        for state in states {
+            let html = render(state);
+            assert!(
+                html.contains(r#"class="dot""#),
+                "{:?} pill should carry a .dot element: {}",
                 state,
                 html,
             );
