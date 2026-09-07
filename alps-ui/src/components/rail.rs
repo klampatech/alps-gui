@@ -72,7 +72,7 @@ pub fn FullRail(current_phase: u8, has_failed: bool) -> Element {
                     // stays teal; the active node itself goes red so the
                     // operator sees "stopped here" at a glance.
                     let dot_class = if is_active && has_failed {
-                        "rail-node active"
+                        "rail-node active has-failed"
                     } else if is_done {
                         "rail-node done"
                     } else if is_active {
