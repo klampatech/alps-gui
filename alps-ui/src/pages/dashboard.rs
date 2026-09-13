@@ -449,13 +449,25 @@ fn TaskCard(task: crate::domain::TaskSummary) -> Element {
             key: "{task.task_id}",
             class: "surface",
             style: "padding:16px 18px;display:flex;flex-direction:column;gap:10px;text-decoration:none;color:inherit;transition:border-color .15s;",
-            // Top row
+            // Top row — StatusPill on the left, truncated task id on
+            // the right. Task IDs are 48 chars (`YYYY-MM-DDTHHMMSS-uuidhex`)
+            // and the Dashboard's 3-col grid cards are ~400px wide, so
+            // without truncation the full ID spills past the right edge
+            // and visually overlaps the next card. `min-width:0` on the
+            // flex row + `max-width:100%; overflow:hidden` on the ID
+            // span lets it shrink to whatever's available, with
+            // ellipsis for the remainder.
+            //
+            // Per the deck design language, the full ID is preserved
+            // in the DOM (`text-overflow: ellipsis` is purely visual —
+            // the user's `alps show <id>` commands still need the
+            // canonical id, which lives in the click target).
             div {
-                style: "display:flex;justify-content:space-between;align-items:center;gap:12px;",
+                style: "display:flex;justify-content:space-between;align-items:center;gap:12px;min-width:0;",
                 StatusPill { state: task.state }
                 span {
                     class: "alps-mono",
-                    style: "font-size:12px;color:var(--dim);",
+                    style: "font-size:12px;color:var(--dim);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;",
                     "{task.task_id}"
                 }
             }
