@@ -198,9 +198,19 @@ pub fn Dashboard() -> Element {
                 style: "display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:24px;",
                 // Left column — NewTask card.
                 NewTaskSection {}
-                // Right column — task cards in 2-col grid.
+                // Right column — task cards in a responsive auto-fill
+                // grid. The `minmax(280px, 1fr)` track is load-bearing:
+                // `minmax(0, 1fr)` collapses to a single column because
+                // the minimum track size is zero, so auto-fill can fit
+                // unlimited cards at 0px wide. A real minimum (280px) is
+                // below the smallest task card content width (~280px)
+                // and lets auto-fill produce 2 cols at the standard
+                // 1400px viewport (1400 / (280 + 14) ≈ 4.7, rounds down
+                // to 4 with the 14px gap; but cards are wider than 280px
+                // so it settles at 2 cols at 1280, 3 at 1600+). See
+                // PR review thread for the rendered regression.
                 div {
-                    style: "display:grid;grid-template-columns:repeat(auto-fill,minmax(0,1fr));gap:14px;align-content:start;",
+                    style: "display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;align-content:start;",
                     {loader_view}
                 }
             }

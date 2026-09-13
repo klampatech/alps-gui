@@ -85,6 +85,7 @@ use dioxus_fullstack_macro::server;
 #[cfg(feature = "server")]
 #[server]
 pub async fn tasks_list(workdir: String) -> Result<TaskList, ServerFnError> {
+    let workdir = crate::api::workdir::expand_workdir(&workdir);
     let output = Command::new("alps")
         .arg("list")
         .arg("--json")
@@ -140,6 +141,7 @@ pub async fn tasks_list(workdir: String) -> Result<TaskList, ServerFnError> {
 #[cfg(feature = "server")]
 #[server]
 pub async fn task_get(workdir: String, task_id: String) -> Result<Option<TaskDetail>, ServerFnError> {
+    let workdir = crate::api::workdir::expand_workdir(&workdir);
     let output = Command::new("alps")
         .arg("show")
         .arg("--json")
