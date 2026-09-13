@@ -102,6 +102,73 @@ pub fn config_path() -> Option<PathBuf> {
     Some(PathBuf::from(home).join(".alps-ui-config.json"))
 }
 
+/// Server-side: expand a leading `~` or `~/...` to `$HOME` or
+/// `$HOME/...`. Used at every server-fn entry point that takes a
+/// `workdir` arg, because the wasm client can't link `std::env::var`
+/// and ships a literal `~/...` value as its fallback.
+///
+/// ## Why this lives in `api/workdir.rs` instead of a util module
+///
+/// The fix is load-bearing for any workdir-string entry point — every
+/// server fn that shells out via `Command::new("alps")` or reads
+/// `<workdir>/.alps-pids.json` must expand first. Putting it here
+/// keeps the import surface small (just `use crate::api::workdir::expand_workdir`)
+/// and co-locates with the other workdir-handling helpers.
+///
+/// ## Why server-side instead of wasm-side
+///
+/// The wasm build can't read `$HOME` from the env. It also can't read
+/// `$HOME/.alps-ui-config.json` (server-only file). The wasm's
+/// `default_workdir()` therefore ships a literal `~/...` value, and
+/// the server MUST be the side that resolves it to the user's actual
+/// `$HOME/...`. Putting the expansion in the server is the only place
+/// that has access to `$HOME`.
+///
+/// ## Behavior
+///
+/// - `"~/alps-runs"` → `"$HOME/alps-runs"` (with `$HOME` substituted)
+/// - `"~"` → `"$HOME"`
+/// - `"/abs/path"` → `"/abs/path"` (unchanged)
+/// - `"relative/path"` → `"relative/path"` (unchanged — only the
+///   leading `~` is special; this matches POSIX shell semantics)
+/// - `""` → `""` (empty string passes through unchanged so callers
+///   that want to skip expansion can pass an empty sentinel)
+///
+/// If `$HOME` isn't set (extremely rare), falls back to leaving the
+/// `~` in place — `alps list --workdir ~/.alps-runs` would then
+/// return the same error it always did, which is the safest fallback
+/// (no silent wrong path).
+#[cfg(feature = "server")]
+pub fn expand_workdir(workdir: &str) -> String {
+    if !workdir.starts_with('~') {
+        return workdir.to_string();
+    }
+    let Some(home) = std::env::var("HOME").ok().filter(|h| !h.is_empty()) else {
+        // No $HOME — leave the tilde in place. The downstream `alps`
+        // invocation will fail the same way it always did, which is
+        // better than silently picking the wrong path.
+        return workdir.to_string();
+    };
+    if workdir == "~" {
+        return home;
+    }
+    if let Some(rest) = workdir.strip_prefix("~/") {
+        // `~/foo/bar` → `$HOME/foo/bar`. We don't use `Path::join` here
+        // because `$HOME` might not end with a separator and we want
+        // exactly one separator between home and the rest.
+        let mut out = home;
+        if !out.ends_with('/') {
+            out.push('/');
+        }
+        out.push_str(rest);
+        out
+    } else {
+        // `~user/foo` — we don't support user-specific expansion (no
+        // passwd lookup). Pass through unchanged.
+        workdir.to_string()
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // `#[server]` server fns — the public surface that the Settings page
 // (and the App-mount init path) call.
@@ -172,5 +239,72 @@ mod tests {
             parsed.get("workdir").and_then(|v| v.as_str()),
             Some("/tmp/test")
         );
+    }
+
+    /// `~/alps-runs` expands to `$HOME/alps-runs` with the user's
+    /// actual home dir substituted. This is the load-bearing case
+    /// for the wasm-side `default_workdir()` literal — without
+    /// expansion, every cold-paint of the Dashboard sends `~/...`
+    /// to the server which returns empty results.
+    #[test]
+    fn expand_workdir_tilde_slash() {
+        let home = std::env::var("HOME").unwrap_or_default();
+        assert_eq!(expand_workdir("~/alps-runs"), format!("{home}/alps-runs"));
+        assert_eq!(expand_workdir("~/Development/alps-runs"), format!("{home}/Development/alps-runs"));
+        assert_eq!(expand_workdir("~/foo/bar"), format!("{home}/foo/bar"));
+    }
+
+    /// `~` alone expands to just `$HOME`.
+    #[test]
+    fn expand_workdir_bare_tilde() {
+        let home = std::env::var("HOME").unwrap_or_default();
+        assert_eq!(expand_workdir("~"), home);
+    }
+
+    /// Absolute paths are returned unchanged. The expansion is only
+    /// for the leading `~` — POSIX shell semantics.
+    #[test]
+    fn expand_workdir_absolute_path_unchanged() {
+        assert_eq!(expand_workdir("/home/kyle/Development/alps-runs"), "/home/kyle/Development/alps-runs");
+        assert_eq!(expand_workdir("/tmp/foo"), "/tmp/foo");
+    }
+
+    /// Relative paths without `~` are unchanged.
+    #[test]
+    fn expand_workdir_relative_unchanged() {
+        assert_eq!(expand_workdir("./alps-runs"), "./alps-runs");
+        assert_eq!(expand_workdir("alps-runs"), "alps-runs");
+    }
+
+    /// `~user/foo` (user-specific expansion, which requires passwd
+    /// lookup) is NOT supported — passes through unchanged. Avoids
+    /// silently picking the wrong path.
+    #[test]
+    fn expand_workdir_user_tilde_passthrough() {
+        assert_eq!(expand_workdir("~root/foo"), "~root/foo");
+    }
+
+    /// `$HOME` without trailing slash still gets exactly one separator
+    /// between home and the rest. Guards against double slashes.
+    #[test]
+    fn expand_workdir_handles_home_without_trailing_slash() {
+        // Temporarily override HOME to a value without trailing slash.
+        let saved = std::env::var("HOME").ok();
+        std::env::set_var("HOME", "/home/kyle");
+        let result = expand_workdir("~/alps-runs");
+        assert_eq!(result, "/home/kyle/alps-runs");
+        // Restore.
+        match saved {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
+    }
+
+    /// Empty string passes through — callers may use `""` as a sentinel
+    /// to skip expansion (e.g. when the workdir isn't required for a
+    /// particular code path).
+    #[test]
+    fn expand_workdir_empty_passes_through() {
+        assert_eq!(expand_workdir(""), "");
     }
 }

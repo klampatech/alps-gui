@@ -89,6 +89,7 @@ pub async fn task_diff(
     workdir: String,
     task_id: String,
 ) -> Result<Vec<CommitDiff>, ServerFnError> {
+    let workdir = crate::api::workdir::expand_workdir(&workdir);
     // Path-traversal guard.
     if task_id.contains("..") || task_id.contains('/')
         || task_id.contains('\\') || task_id.contains('\0')
