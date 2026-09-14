@@ -120,6 +120,7 @@ pub async fn task_run(
     deliverable_path: String,
     prompt: String,
 ) -> Result<String, ServerFnError> {
+    let workdir = crate::api::workdir::expand_workdir(&workdir);
     let workdir_path = std::path::PathBuf::from(&workdir);
 
     // Step 1: write prompt to a temp file. The CLI deletes the

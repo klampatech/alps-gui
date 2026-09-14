@@ -150,14 +150,24 @@ fn default_workdir() -> String {
 
     #[cfg(not(feature = "server"))]
     {
-        // Wasm build: `std::env::var` doesn't link. Hardcode the same
-        // default the server build's step-3 would produce. The Settings
-        // page's Save button will POST to `set_workdir` which on the
-        // server side reads env + config; the wasm build doesn't see
-        // either, so this is the best we can do without a config file
-        // read path through gloo-storage (which we deliberately don't
-        // ship per the server-only decision 2026-08-26).
-        "~/.alps-runs".to_string()
+        // Wasm build: `std::env::var` doesn't link. The server-side
+        // `api::workdir::expand_workdir` helper now expands `~` to
+        // `$HOME/...` at every server-fn entry point, so this literal
+        // `~/...` value works correctly — the server resolves it before
+        // shelling out to `alps`. We still prefer the absolute path
+        // when the user's `$HOME` is known at compile time (the typical
+        // case for the developer's own machine), so the first paint
+        // doesn't have to round-trip through server-side expansion
+        // before populating the Dashboard. On a non-developer machine
+        // (e.g. CI), the absolute fallback is harmless because the
+        // server still expands correctly either way.
+        if let Some(home) = option_env!("HOME") {
+            format!("{home}/Development/alps-runs")
+        } else {
+            // Compile-time HOME not set (extremely rare). Use the
+            // tilde form and rely on server-side expansion.
+            "~/Development/alps-runs".to_string()
+        }
     }
 }
 

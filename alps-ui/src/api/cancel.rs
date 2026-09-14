@@ -56,6 +56,7 @@ pub async fn task_cancel(
     workdir: String,
     task_id: String,
 ) -> Result<(), ServerFnError> {
+    let workdir = crate::api::workdir::expand_workdir(&workdir);
     // Path-traversal guard: task_id arrives as a URL-derived string
     // (Route::TaskDiff uses it typed; the cancel button passes the
     // typed TaskId through). Defensively reject before any FS

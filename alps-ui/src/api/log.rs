@@ -113,6 +113,7 @@ pub async fn task_log_tail_telemetry(
     workdir: String,
     since_line_no: u64,
 ) -> Result<Vec<LogLine>, ServerFnError> {
+    let workdir = crate::api::workdir::expand_workdir(&workdir);
     let path = PathBuf::from(&workdir).join(".alps-telemetry.log");
     tail_file(&path, since_line_no, "telemetry").await
 }
@@ -148,6 +149,7 @@ pub async fn task_log_tail_ralph(
     task_id: String,
     since_line_no: u64,
 ) -> Result<Vec<LogLine>, ServerFnError> {
+    let workdir = crate::api::workdir::expand_workdir(&workdir);
     // Path-traversal guard. The UI's `Route::TaskLog { id: TaskId }`
     // accepts any URL-derived string (the `FromStr` impl on `TaskId`
     // is infallible), so we MUST validate before joining into a

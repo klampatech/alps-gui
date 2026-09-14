@@ -8,41 +8,41 @@
 //!
 //! ## What this file exports
 //!
-//! - `StatusPill` — color-coded badge for one of 9 `TaskState` variants.
-//!   **Consumed by US-005's Dashboard.**
+//! - `StatusPill` — color-coded badge for a `TaskState` (9-variant exhaustive
+//!   match + 6-style visual collapse per docs/alps-gui-redesign-deck.html
+//!   §01). **Consumed by Dashboard, TaskDetail.**
+//! - `Rail` — the 5-node pipeline rail (Plan/Implement/Review/Judge/Done),
+//!   two variants: `FullRail` for TaskDetail's page header, `MiniRail` for
+//!   Dashboard task cards. **Consumed by Dashboard, TaskDetail.**
 //! - `StoryCard` — one `UserStory` row in the TaskDetail Plan tab.
-//!   Lands in US-006+ (TaskDetail render).
-//! - `FindingCard` — one entry in a Review's findings list (severity pill).
-//!   Lands in US-006+ (TaskDetail Review tab).
+//! - `FindingCard` — one entry in a Review's findings list.
 //! - `AssertionCard` — one entry in a Review's assertions list.
-//!   Lands in US-006+ (TaskDetail Review tab).
 //! - `ReceiptCard` — the final `Receipts` summary for a Done task.
-//!   Lands in US-006+ (TaskDetail Receipts tab).
-//! - `ResponsiveGrid` — 1-col-default, 3-col-on-`lg:` wrapper.
-//!   **Consumed by US-005's Dashboard.**
+//! - `ResponsiveGrid` — 1-col-default, 3-col-on-`lg:` wrapper (kept for
+//!   backwards compatibility; the Control Rail redesign uses a 2-col
+//!   Dashboard grid that doesn't need the responsive-3-col wrapper).
 //!
 //! ## `#[allow(unused_imports)]` for the unconsumed re-exports
 //!
-//! US-005 lands `ResponsiveGrid` + `StatusPill` into the Dashboard.
-//! The other four components (`StoryCard`, `FindingCard`,
-//! `AssertionCard`, `ReceiptCard`) are still unused until US-006+ wires
-//! them into TaskDetail / TaskLog / TaskDiff. To suppress the
-//! `unused_imports` lint on those four re-exports without keeping the
-//! dead-code/unused-imports allow on the whole module, each unconsumed
-//! re-export carries an inline `#[allow(unused_imports)]`. Strip those
-//! once US-006+ adds the consumer.
+//! The TaskDetail sub-cards (`StoryCard` / `FindingCard` /
+//! `AssertionCard` / `ReceiptCard`) stay as-is for the redesign — they
+//! still render inside the Plan / Review / Receipts accordions. Per
+//! status_pill.rs the `match` on `TaskState` is exhaustive over all 9
+//! variants; the re-exports stay live.
 #![allow(unused_imports)]
 
-mod responsive_grid;
+mod rail;
 
 mod assertion_card;
 mod finding_card;
 mod receipt_card;
+mod responsive_grid;
 mod status_pill;
 mod story_card;
 
 pub use assertion_card::AssertionCard;
 pub use finding_card::FindingCard;
+pub use rail::{phase_for_state, FullRail, MiniRail};
 pub use receipt_card::ReceiptCard;
 pub use responsive_grid::ResponsiveGrid;
 pub use status_pill::StatusPill;
